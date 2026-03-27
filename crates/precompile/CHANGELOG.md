@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [33.0.0](https://github.com/bluealloy/revm/compare/revm-precompile-v32.1.0...revm-precompile-v33.0.0) - 2026-03-27
+
+### Added
+
+- add crate-level re-exports for all revm-* dependencies ([#3507](https://github.com/bluealloy/revm/pull/3507))
+
+### Other
+
+- *(precompile)* take large array args by reference ([#3524](https://github.com/bluealloy/revm/pull/3524))
+- add secp256r1 (P256) precompile benchmark ([#3525](https://github.com/bluealloy/revm/pull/3525))
+- use AnyError for PrecompileError::Fatal and EVMError::Custom ([#3502](https://github.com/bluealloy/revm/pull/3502))
+- clarify PrecompileError::Fatal vs Other and EVMError::Custom ([#3496](https://github.com/bluealloy/revm/pull/3496))
+
 ## [32.1.0](https://github.com/bluealloy/revm/compare/revm-precompile-v32.0.0...revm-precompile-v32.1.0) - 2026-03-02
 
 ### Added

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [17.0.0](https://github.com/bluealloy/revm/compare/revm-context-interface-v16.0.0...revm-context-interface-v17.0.0) - 2026-03-27
+
+### Added
+
+- add CallInput::as_bytes ([#3515](https://github.com/bluealloy/revm/pull/3515))
+- add crate-level re-exports for all revm-* dependencies ([#3507](https://github.com/bluealloy/revm/pull/3507))
+
+### Fixed
+
+- make DummyHost return defaults instead of errors for storage ops ([#3503](https://github.com/bluealloy/revm/pull/3503))
+- expose JournalLoadError from load_account_mut_skip_cold_load ([#3477](https://github.com/bluealloy/revm/pull/3477))
+
+### Other
+
+- add comment about frame stack initial capacity ([#3527](https://github.com/bluealloy/revm/pull/3527))
+- use AnyError for PrecompileError::Fatal and EVMError::Custom ([#3502](https://github.com/bluealloy/revm/pull/3502))
+- clarify PrecompileError::Fatal vs Other and EVMError::Custom ([#3496](https://github.com/bluealloy/revm/pull/3496))
+
 ## [16.0.0](https://github.com/bluealloy/revm/compare/revm-context-interface-v15.0.0...revm-context-interface-v16.0.0) - 2026-03-04
 
 ### Other

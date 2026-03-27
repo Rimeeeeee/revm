@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [17.1.0](https://github.com/bluealloy/revm/compare/revm-inspector-v17.0.0...revm-inspector-v17.1.0) - 2026-03-27
+
+### Added
+
+- *(inspector)* add `frame_start` and `frame_end` to `Inspector` trait ([#3518](https://github.com/bluealloy/revm/pull/3518))
+- add crate-level re-exports for all revm-* dependencies ([#3507](https://github.com/bluealloy/revm/pull/3507))
+
+### Fixed
+
+- ensure both inspectors receive paired call/create events in tuple impl ([#3473](https://github.com/bluealloy/revm/pull/3473))
+
+### Other
+
+- *(inspector)* remove redundant log clone in precompile path ([#3520](https://github.com/bluealloy/revm/pull/3520))
+
 ## [17.0.0](https://github.com/bluealloy/revm/compare/revm-inspector-v16.0.0...revm-inspector-v17.0.0) - 2026-03-04
 
 ### Other

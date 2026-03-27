@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [17.1.0](https://github.com/bluealloy/revm/compare/revm-handler-v17.0.0...revm-handler-v17.1.0) - 2026-03-27
+
+### Added
+
+- add CallInput::as_bytes ([#3515](https://github.com/bluealloy/revm/pull/3515))
+- add crate-level re-exports for all revm-* dependencies ([#3507](https://github.com/bluealloy/revm/pull/3507))
+- Part of amsterdam devnet3 EIP updates ([#3438](https://github.com/bluealloy/revm/pull/3438))
+
+### Other
+
+- use AnyError for PrecompileError::Fatal and EVMError::Custom ([#3502](https://github.com/bluealloy/revm/pull/3502))
+- *(handler)* rename misleading `underflow` variable to `success` ([#3486](https://github.com/bluealloy/revm/pull/3486))
+
 ## [17.0.0](https://github.com/bluealloy/revm/compare/revm-handler-v16.0.0...revm-handler-v17.0.0) - 2026-03-04
 
 ### Other
