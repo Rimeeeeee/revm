@@ -181,6 +181,12 @@ impl AccountInfoBal {
         self.nonce.update(index, &original.nonce, present.nonce);
         self.balance
             .update(index, &original.balance, present.balance);
+        tracing::info!(
+            target: "bal",
+             "Updating balance for account with original balance: {:?} and present balance: {:?}",
+             original.balance,
+             present.balance
+        );
         if original.code_hash != present.code_hash {
             self.code.update_with_key(
                 index,
@@ -203,6 +209,12 @@ impl AccountInfoBal {
     #[inline]
     pub fn balance_update(&mut self, bal_index: BalIndex, original_balance: &U256, balance: U256) {
         self.balance.update(bal_index, original_balance, balance);
+        tracing::info!(
+            target: "bal",
+             "Updating balance for account with original balance: {:?} and present balance: {:?}",
+             original_balance,
+             balance
+        );
     }
 
     /// Update account nonce in BAL.

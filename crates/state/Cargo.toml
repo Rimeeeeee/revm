@@ -27,6 +27,7 @@ alloy-eip7928.workspace = true
 
 # misc
 bitflags.workspace = true
+tracing.workspace = true
 
 # Optional
 serde = { workspace = true, features = ["derive", "rc"], optional = true }
