@@ -181,6 +181,7 @@ pub fn run_inner<F, const OSAKA: bool>(
 where
     F: FnOnce(u64, u64, u64, &U256) -> u64,
 {
+    tracing::info!("min_gas: {min_gas}, gas_limit: {gas_limit}");
     // If there is no minimum gas, return error.
     if min_gas > gas_limit {
         return Err(PrecompileError::OutOfGas);
@@ -229,6 +230,8 @@ where
 
     // Check if we have enough gas.
     let gas_cost = calc_gas(base_len as u64, exp_len as u64, mod_len as u64, &exp_highp);
+    tracing::info!("gas_cost: {gas_cost}");
+    tracing::info!("gas_limit: {gas_limit}");
     if gas_cost > gas_limit {
         return Err(PrecompileError::OutOfGas);
     }

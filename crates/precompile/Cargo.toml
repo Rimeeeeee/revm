@@ -68,6 +68,7 @@ aws-lc-rs = { workspace = true, optional = true }
 # utils
 cfg-if.workspace = true
 arrayref = "0.3.6"
+tracing.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

@@ -3778,6 +3778,7 @@ dependencies = [
  "secp256k1 0.31.1",
  "sha2",
  "substrate-bn",
+ "tracing",
 ]
 
 [[package]]
