@@ -258,11 +258,18 @@ impl ResultGas {
     ///
     /// This value is set inside Receipt.
     #[inline]
-    pub const fn tx_gas_used(&self) -> u64 {
+    pub fn tx_gas_used(&self) -> u64 {
         // consiste of regular and state gas.
         let total_gas_spent = self.total_gas_spent();
+        tracing::info!(
+            total_gas_spent,
+            refunded = self.inner_refunded(),
+            floor_gas = self.floor_gas(),
+            "Calculating tx gas used"
+        );
         // from total gas substract the refunded gas. Refunded is capped by 20% of total gas spent.
         let tx_gas_refunded = total_gas_spent.saturating_sub(self.inner_refunded());
+        tracing::info!(tx_gas_refunded, "After subtracting refunded gas");
         max(tx_gas_refunded, self.floor_gas())
     }
 

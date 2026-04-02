@@ -130,8 +130,10 @@ pub fn validate_tx_env<CTX: ContextTr>(
     } else {
         Some(context.block().basefee() as u128)
     };
+    tracing::info!("base fee:{:?}", base_fee);
 
     let tx_type = TransactionType::from(tx_type);
+    tracing::info!("Transaction type: {:?}", tx_type);
 
     // Check chain_id if config is enabled.
     // EIP-155: Simple replay attack protection
@@ -150,6 +152,7 @@ pub fn validate_tx_env<CTX: ContextTr>(
     if !context.cfg().is_amsterdam_eip8037_enabled() {
         // EIP-7825: Transaction Gas Limit Cap
         let cap = context.cfg().tx_gas_limit_cap();
+        tracing::info!("Transaction gas limit cap: {:?}", cap);
         if tx.gas_limit() > cap {
             return Err(InvalidTransaction::TxGasLimitGreaterThanCap {
                 gas_limit: tx.gas_limit(),
@@ -236,6 +239,7 @@ pub fn validate_initial_tx_gas(
     is_eip7623_disabled: bool,
 ) -> Result<InitialAndFloorGas, InvalidTransaction> {
     let mut gas = calculate_initial_tx_gas_for_tx(&tx, spec);
+    tracing::info!("Initial gas calculated for transaction: {:?}", gas);
 
     if is_eip7623_disabled {
         gas.floor_gas = 0

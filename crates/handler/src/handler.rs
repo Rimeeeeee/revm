@@ -153,17 +153,21 @@ pub trait Handler {
         evm: &mut Self::Evm,
     ) -> Result<ExecutionResult<Self::HaltReason>, Self::Error> {
         let mut init_and_floor_gas = self.validate(evm)?;
+        tracing::info!("Init and floor gas: {:?}", init_and_floor_gas);
         let eip7702_refund = self.pre_execution(evm, &mut init_and_floor_gas)?;
+        tracing::info!("EIP-7702 refund from pre-execution: {}", eip7702_refund);
         // Regular refund is returned from pre_execution after state gas split is applied
         let eip7702_regular_refund = eip7702_refund as i64;
 
         let mut exec_result = self.execution(evm, &init_and_floor_gas)?;
+        tracing::info!("Exec result: {:?}", exec_result);
         let result_gas = self.post_execution(
             evm,
             &mut exec_result,
             init_and_floor_gas,
             eip7702_regular_refund,
         )?;
+        tracing::info!("Result gas after post execution: {:?}", result_gas);
 
         // Prepare the output
         self.execution_result(evm, exec_result, result_gas)
@@ -578,6 +582,7 @@ pub trait Handler {
         take_error::<Self::Error, _>(evm.ctx().error())?;
 
         let exec_result = post_execution::output(evm.ctx(), result, result_gas);
+        tracing::info!("Execution result prepared: {:?}", exec_result);
 
         // commit transaction
         evm.ctx().journal_mut().commit_tx();
