@@ -26,7 +26,7 @@ pub struct AccountBal {
     pub account_info: AccountInfoBal,
     /// Storage bal.
     pub storage: StorageBal,
-    /// Post-block storage trie root, if it can be computed from known complete storage.
+    /// Post-block storage trie root, as per eip 8268.
     pub storage_root: Option<B256>,
 }
 
@@ -178,6 +178,7 @@ impl AccountBal {
     /// <https://eips.ethereum.org/EIPS/eip-7928#ordering-uniqueness-and-determinism>.
     #[inline]
     pub fn into_alloy_account(self, address: Address) -> AlloyAccountChanges {
+        let has_state_changes = self.has_state_changes();
         let storage_len = self.storage.storage.len();
         let mut storage_reads = Vec::with_capacity(storage_len);
         let mut storage_changes = Vec::with_capacity(storage_len);
@@ -223,15 +224,7 @@ impl AccountBal {
             .collect::<Vec<_>>();
         code_changes.sort_unstable_by_key(|change| change.block_access_index);
 
-        let storage_root = if storage_changes.is_empty()
-            && balance_changes.is_empty()
-            && nonce_changes.is_empty()
-            && code_changes.is_empty()
-        {
-            None
-        } else {
-            self.storage_root
-        };
+        let storage_root = has_state_changes.then_some(self.storage_root).flatten();
 
         AlloyAccountChanges {
             address,
