@@ -64,7 +64,7 @@ impl AccountBal {
             // Selfdestruct wipes all storage to zero, record writes accordingly.
             self.storage
                 .update_selfdestruct(bal_index, &account.storage);
-            self.storage_root = post_storage_root(account);
+            self.update_storage_root(account);
             return;
         }
 
@@ -72,7 +72,24 @@ impl AccountBal {
             .update(bal_index, &account.original_info(), &account.info);
 
         self.storage.update(bal_index, &account.storage);
-        self.storage_root = post_storage_root(account);
+        self.update_storage_root(account);
+    }
+
+    #[inline]
+    fn has_state_changes(&self) -> bool {
+        !self.account_info.balance.is_empty()
+            || !self.account_info.nonce.is_empty()
+            || !self.account_info.code.is_empty()
+            || self
+                .storage
+                .storage
+                .values()
+                .any(|writes| !writes.is_empty())
+    }
+
+    #[inline]
+    fn update_storage_root(&mut self, account: &Account) {
+        self.storage_root = self.has_state_changes().then(|| post_storage_root(account));
     }
 
     /// Create an account BAL from EIP-7928 [`AlloyAccountChanges`].
@@ -228,16 +245,10 @@ impl AccountBal {
     }
 }
 
-fn post_storage_root(account: &Account) -> Option<B256> {
-    if account.is_selfdestructed() || account.is_loaded_as_not_existing() {
-        return Some(storage_root_unhashed(core::iter::empty::<(B256, U256)>()));
-    }
-
-    account.is_created().then(|| {
-        storage_root_unhashed(account.storage.iter().filter_map(|(key, slot)| {
-            (!slot.present_value.is_zero()).then_some((B256::from(*key), slot.present_value))
-        }))
-    })
+fn post_storage_root(account: &Account) -> B256 {
+    storage_root_unhashed(account.storage.iter().filter_map(|(key, slot)| {
+        (!slot.present_value.is_zero()).then_some((B256::from(*key), slot.present_value))
+    }))
 }
 
 /// Account info bal structure.

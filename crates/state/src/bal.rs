@@ -519,6 +519,103 @@ mod tests {
     }
 
     #[test]
+    fn update_selfdestructed_account_fills_storage_root_from_account_storage() {
+        let address = Address::with_last_byte(1);
+        let slot = U256::from(1);
+        let value = U256::from(10);
+        let mut account = Account::from(AccountInfo::from_balance(U256::from(10))).with_storage(
+            [(
+                slot,
+                crate::EvmStorageSlot::new(value, crate::TransactionId::ZERO),
+            )]
+            .into_iter(),
+        );
+        account.mark_selfdestructed_locally();
+
+        let mut bal = Bal::new();
+        bal.update_account(idx(1), address, &account);
+        let alloy_bal = bal.into_alloy_bal();
+
+        assert_eq!(
+            alloy_bal[0].storage_root,
+            Some(storage_root_unhashed([(B256::from(slot), value)]))
+        );
+        assert!(!alloy_bal[0].balance_changes.is_empty());
+        assert!(!alloy_bal[0].storage_changes.is_empty());
+    }
+
+    #[test]
+    fn update_loaded_not_existing_account_fills_empty_storage_root() {
+        let address = Address::with_last_byte(1);
+        let mut account = Account::new_not_existing(crate::TransactionId::ZERO);
+        account.info.balance = U256::from(10);
+
+        let mut bal = Bal::new();
+        bal.update_account(idx(1), address, &account);
+        let alloy_bal = bal.into_alloy_bal();
+
+        assert_eq!(
+            alloy_bal[0].storage_root,
+            Some(storage_root_unhashed(core::iter::empty::<(B256, U256)>()))
+        );
+        assert!(!alloy_bal[0].balance_changes.is_empty());
+    }
+
+    #[test]
+    fn update_existing_account_fills_storage_root_from_bal_writes() {
+        let address = Address::with_last_byte(1);
+        let slot = U256::from(1);
+        let value = U256::from(20);
+        let mut account = Account::from(AccountInfo::from_balance(U256::from(10)));
+        account = account.with_storage(
+            [(
+                slot,
+                crate::EvmStorageSlot::new_changed(
+                    U256::from(10),
+                    value,
+                    crate::TransactionId::ZERO,
+                ),
+            )]
+            .into_iter(),
+        );
+
+        let mut bal = Bal::new();
+        bal.update_account(idx(1), address, &account);
+        let alloy_bal = bal.into_alloy_bal();
+
+        assert_eq!(
+            alloy_bal[0].storage_root,
+            Some(storage_root_unhashed([(B256::from(slot), value)]))
+        );
+        assert!(!alloy_bal[0].storage_changes.is_empty());
+    }
+
+    #[test]
+    fn update_access_only_account_keeps_storage_root_none() {
+        let address = Address::with_last_byte(1);
+        let slot = U256::from(1);
+        let value = U256::from(10);
+        let mut account = Account::default().with_storage(
+            [(
+                slot,
+                crate::EvmStorageSlot::new(value, crate::TransactionId::ZERO),
+            )]
+            .into_iter(),
+        );
+        account.mark_created();
+
+        let mut bal = Bal::new();
+        bal.update_account(idx(1), address, &account);
+        let alloy_bal = bal.into_alloy_bal();
+
+        assert_eq!(alloy_bal[0].storage_root, None);
+        assert!(alloy_bal[0].storage_changes.is_empty());
+        assert!(alloy_bal[0].balance_changes.is_empty());
+        assert!(alloy_bal[0].nonce_changes.is_empty());
+        assert!(alloy_bal[0].code_changes.is_empty());
+    }
+
+    #[test]
     fn try_from_alloy_errors_on_invalid_code_change() {
         let alloy_bal = vec![AlloyAccountChanges {
             address: Address::with_last_byte(1),
