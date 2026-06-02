@@ -318,6 +318,7 @@ mod tests {
         CodeChange as AlloyCodeChange, NonceChange as AlloyNonceChange,
         SlotChanges as AlloySlotChanges, StorageChange as AlloyStorageChange,
     };
+    use alloy_trie::root::storage_root_unhashed;
     use bytecode::Bytecode;
     use primitives::{Bytes, B256, U256};
     use std::collections::BTreeMap;
@@ -366,6 +367,7 @@ mod tests {
                     (U256::from(3), BalWrites { writes: vec![] }),
                 ]),
             },
+            storage_root: None,
         };
 
         let alloy_bal = Bal::from_iter([
@@ -465,6 +467,7 @@ mod tests {
             balance_changes: vec![AlloyBalanceChange::new(idx(2), U256::from(20))],
             nonce_changes: vec![AlloyNonceChange::new(idx(3), 30)],
             code_changes: vec![AlloyCodeChange::new(idx(4), code_bytes.clone())],
+            storage_root: None,
         }];
 
         let borrowed = Bal::clone_from_alloy(&alloy_bal).unwrap();
@@ -472,6 +475,47 @@ mod tests {
 
         assert_eq!(borrowed, owned);
         assert_eq!(alloy_bal[0].code_changes[0].new_code(), &code_bytes);
+    }
+
+    #[test]
+    fn alloy_conversion_preserves_storage_root() {
+        let address = Address::with_last_byte(1);
+        let storage_root = B256::from([0x42; 32]);
+        let alloy_bal = vec![AlloyAccountChanges {
+            address,
+            balance_changes: vec![AlloyBalanceChange::new(idx(1), U256::from(20))],
+            storage_root: Some(storage_root),
+            ..Default::default()
+        }];
+
+        let bal = Bal::try_from_alloy(alloy_bal).unwrap();
+        let alloy_bal = bal.into_alloy_bal();
+
+        assert_eq!(alloy_bal[0].storage_root, Some(storage_root));
+    }
+
+    #[test]
+    fn update_created_account_fills_storage_root() {
+        let address = Address::with_last_byte(1);
+        let slot = U256::from(1);
+        let value = U256::from(10);
+        let mut account = Account::default().with_storage(
+            [(
+                slot,
+                crate::EvmStorageSlot::new_changed(U256::ZERO, value, crate::TransactionId::ZERO),
+            )]
+            .into_iter(),
+        );
+        account.mark_created();
+
+        let mut bal = Bal::new();
+        bal.update_account(idx(1), address, &account);
+        let alloy_bal = bal.into_alloy_bal();
+
+        assert_eq!(
+            alloy_bal[0].storage_root,
+            Some(storage_root_unhashed([(B256::from(slot), value)]))
+        );
     }
 
     #[test]

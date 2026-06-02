@@ -9,6 +9,7 @@ use alloy_eip7928::{
     CodeChange as AlloyCodeChange, NonceChange as AlloyNonceChange,
     SlotChanges as AlloySlotChanges, StorageChange as AlloyStorageChange,
 };
+use alloy_trie::root::storage_root_unhashed;
 use bytecode::{Bytecode, BytecodeDecodeError};
 use core::ops::{Deref, DerefMut};
 use primitives::{Address, StorageKey, StorageValue, B256, U256};
@@ -25,6 +26,8 @@ pub struct AccountBal {
     pub account_info: AccountInfoBal,
     /// Storage bal.
     pub storage: StorageBal,
+    /// Post-block storage trie root, if it can be computed from known complete storage.
+    pub storage_root: Option<B256>,
 }
 
 impl Deref for AccountBal {
@@ -61,6 +64,7 @@ impl AccountBal {
             // Selfdestruct wipes all storage to zero, record writes accordingly.
             self.storage
                 .update_selfdestruct(bal_index, &account.storage);
+            self.storage_root = post_storage_root(account);
             return;
         }
 
@@ -68,6 +72,7 @@ impl AccountBal {
             .update(bal_index, &account.original_info(), &account.info);
 
         self.storage.update(bal_index, &account.storage);
+        self.storage_root = post_storage_root(account);
     }
 
     /// Create an account BAL from EIP-7928 [`AlloyAccountChanges`].
@@ -102,6 +107,7 @@ impl AccountBal {
                         )
                         .map(|slot| (slot.slot, BalWrites::from(slot.changes))),
                 ),
+                storage_root: alloy_account.storage_root,
             },
         ))
     }
@@ -138,6 +144,7 @@ impl AccountBal {
                                 .map(|key| (*key, BalWrites::default())),
                         ),
                 ),
+                storage_root: alloy_account.storage_root,
             },
         ))
     }
@@ -199,6 +206,16 @@ impl AccountBal {
             .collect::<Vec<_>>();
         code_changes.sort_unstable_by_key(|change| change.block_access_index);
 
+        let storage_root = if storage_changes.is_empty()
+            && balance_changes.is_empty()
+            && nonce_changes.is_empty()
+            && code_changes.is_empty()
+        {
+            None
+        } else {
+            self.storage_root
+        };
+
         AlloyAccountChanges {
             address,
             storage_changes,
@@ -206,8 +223,21 @@ impl AccountBal {
             balance_changes,
             nonce_changes,
             code_changes,
+            storage_root,
         }
     }
+}
+
+fn post_storage_root(account: &Account) -> Option<B256> {
+    if account.is_selfdestructed() || account.is_loaded_as_not_existing() {
+        return Some(storage_root_unhashed(core::iter::empty::<(B256, U256)>()));
+    }
+
+    account.is_created().then(|| {
+        storage_root_unhashed(account.storage.iter().filter_map(|(key, slot)| {
+            (!slot.present_value.is_zero()).then_some((B256::from(*key), slot.present_value))
+        }))
+    })
 }
 
 /// Account info bal structure.
