@@ -535,7 +535,6 @@ mod tests {
         let mut bal = Bal::new();
         bal.update_account(idx(1), address, &account);
         let alloy_bal = bal.into_alloy_bal();
-        println!("Alloy BAL: {:#?}", alloy_bal);
         assert_eq!(
             alloy_bal[0].storage_root,
             Some(storage_root_unhashed([(B256::from(slot), value)]))
