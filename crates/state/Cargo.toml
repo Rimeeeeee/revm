@@ -49,11 +49,13 @@ std = [
     "nonmax/std",
 ]
 serde = [
-    "dep:serde",
-    "primitives/serde",
-    "bitflags/serde",
-    "bytecode/serde",
-    "alloy-eip7928/serde",
-    "nonmax/serde",
+	"dep:serde",
+	"primitives/serde",
+	"bitflags/serde",
+	"bytecode/serde",
+	"alloy-eip7928/serde",
+	"nonmax/serde",
+	"alloy-trie/serde"
+
 ]
 map-foldhash = ["primitives/map-foldhash"]
