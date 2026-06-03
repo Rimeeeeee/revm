@@ -84,7 +84,7 @@ impl BalState {
 
     /// Conditionally include post-block storage roots in the built BAL.
     #[inline]
-    pub fn with_storage_root_if(mut self, enable: bool) -> Self {
+    pub const fn with_storage_root_if(mut self, enable: bool) -> Self {
         self.storage_root_enabled = enable;
         self
     }
