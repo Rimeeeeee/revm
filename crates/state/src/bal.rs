@@ -134,10 +134,18 @@ impl Bal {
         bal_index: BlockAccessIndex,
         address: Address,
         account: &Account,
-        storage_root_enabled: bool,
     ) {
         let bal_account = self.accounts.entry(address).or_default();
-        bal_account.update(bal_index, account, storage_root_enabled);
+        bal_account.update(bal_index, account);
+    }
+
+    /// Update post-block storage roots from final account states.
+    pub fn update_storage_roots(&mut self, accounts: impl IntoIterator<Item = (Address, Account)>) {
+        for (address, account) in accounts {
+            if let Some(bal_account) = self.accounts.get_mut(&address) {
+                bal_account.update_storage_root(&account);
+            }
+        }
     }
 
     /// Populate account from BAL. Return true if account info got changed.
@@ -510,7 +518,8 @@ mod tests {
         account.mark_created();
 
         let mut bal = Bal::new();
-        bal.update_account(idx(1), address, &account, true);
+        bal.update_account(idx(1), address, &account);
+        bal.update_storage_roots([(address, account.clone())]);
         let alloy_bal = bal.into_alloy_bal();
 
         assert_eq!(
@@ -534,7 +543,8 @@ mod tests {
         account.mark_selfdestructed_locally();
 
         let mut bal = Bal::new();
-        bal.update_account(idx(1), address, &account, true);
+        bal.update_account(idx(1), address, &account);
+        bal.update_storage_roots([(address, account.clone())]);
         let alloy_bal = bal.into_alloy_bal();
         assert_eq!(
             alloy_bal[0].storage_root,
@@ -551,7 +561,8 @@ mod tests {
         account.info.balance = U256::from(10);
 
         let mut bal = Bal::new();
-        bal.update_account(idx(1), address, &account, true);
+        bal.update_account(idx(1), address, &account);
+        bal.update_storage_roots([(address, account.clone())]);
         let alloy_bal = bal.into_alloy_bal();
         assert_eq!(
             alloy_bal[0].storage_root,
@@ -579,7 +590,8 @@ mod tests {
         );
 
         let mut bal = Bal::new();
-        bal.update_account(idx(1), address, &account, true);
+        bal.update_account(idx(1), address, &account);
+        bal.update_storage_roots([(address, account.clone())]);
         let alloy_bal = bal.into_alloy_bal();
 
         assert_eq!(
@@ -607,7 +619,7 @@ mod tests {
         );
 
         let mut bal = Bal::new();
-        bal.update_account(idx(1), address, &account, false);
+        bal.update_account(idx(1), address, &account);
         let alloy_bal = bal.into_alloy_bal();
 
         assert_eq!(alloy_bal[0].storage_root, None);
@@ -633,7 +645,8 @@ mod tests {
         account.mark_touch();
 
         let mut bal = Bal::new();
-        bal.update_account(idx(1), address, &account, true);
+        bal.update_account(idx(1), address, &account);
+        bal.update_storage_roots([(address, account.clone())]);
         let alloy_bal = bal.into_alloy_bal();
 
         assert_eq!(
@@ -662,7 +675,8 @@ mod tests {
         account.mark_selfdestruct();
 
         let mut bal = Bal::new();
-        bal.update_account(idx(1), address, &account, true);
+        bal.update_account(idx(1), address, &account);
+        bal.update_storage_roots([(address, account.clone())]);
         let alloy_bal = bal.into_alloy_bal();
 
         assert_eq!(
@@ -687,7 +701,8 @@ mod tests {
         account.mark_created();
 
         let mut bal = Bal::new();
-        bal.update_account(idx(1), address, &account, true);
+        bal.update_account(idx(1), address, &account);
+        bal.update_storage_roots([(address, account.clone())]);
         let alloy_bal = bal.into_alloy_bal();
 
         assert_eq!(alloy_bal[0].storage_root, None);

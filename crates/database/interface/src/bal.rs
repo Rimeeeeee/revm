@@ -4,7 +4,7 @@ use core::{
     fmt::Display,
     ops::{Deref, DerefMut},
 };
-use primitives::{Address, StorageKey, StorageValue, B256};
+use primitives::{Address, AddressMap, StorageKey, StorageValue, B256};
 use state::{
     bal::{alloy::AlloyBal, Bal, BalError, BlockAccessIndex},
     Account, AccountId, AccountInfo, Bytecode, EvmState,
@@ -26,8 +26,9 @@ pub struct BalState {
     /// to submit changes.
     pub bal_index: BlockAccessIndex,
     /// Whether built BAL accounts should include post-block storage roots.
-    #[cfg_attr(feature = "serde", serde(default))]
     pub storage_root_enabled: bool,
+    /// Latest account states used to compute post-block storage roots once.
+    pub storage_root_accounts: AddressMap<Account>,
 }
 
 impl BalState {
@@ -83,16 +84,22 @@ impl BalState {
 
     /// Conditionally include post-block storage roots in the built BAL.
     #[inline]
-    pub const fn with_storage_root_if(mut self, enable: bool) -> Self {
+    pub fn with_storage_root_if(mut self, enable: bool) -> Self {
         self.storage_root_enabled = enable;
         self
     }
 
     /// Take BAL builder.
     #[inline]
-    pub const fn take_built_bal(&mut self) -> Option<Bal> {
+    pub fn take_built_bal(&mut self) -> Option<Bal> {
         self.reset_bal_index();
-        self.bal_builder.take()
+        let mut bal = self.bal_builder.take()?;
+        if self.storage_root_enabled {
+            bal.update_storage_roots(core::mem::take(&mut self.storage_root_accounts));
+        } else {
+            self.storage_root_accounts.clear();
+        }
+        Some(bal)
     }
 
     /// Take built BAL as AlloyBAL.
@@ -208,12 +215,10 @@ impl BalState {
     pub fn commit(&mut self, changes: &EvmState) {
         if let Some(bal_builder) = &mut self.bal_builder {
             for (address, account) in changes.iter() {
-                bal_builder.update_account(
-                    self.bal_index,
-                    *address,
-                    account,
-                    self.storage_root_enabled,
-                );
+                bal_builder.update_account(self.bal_index, *address, account);
+                if self.storage_root_enabled {
+                    self.storage_root_accounts.insert(*address, account.clone());
+                }
             }
         }
     }
@@ -222,7 +227,10 @@ impl BalState {
     #[inline]
     pub fn commit_one(&mut self, address: Address, account: &Account) {
         if let Some(bal_builder) = &mut self.bal_builder {
-            bal_builder.update_account(self.bal_index, address, account, self.storage_root_enabled);
+            bal_builder.update_account(self.bal_index, address, account);
+            if self.storage_root_enabled {
+                self.storage_root_accounts.insert(address, account.clone());
+            }
         }
     }
 }

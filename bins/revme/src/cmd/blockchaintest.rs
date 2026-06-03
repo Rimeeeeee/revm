@@ -1012,7 +1012,7 @@ fn execute_blockchain_test(
             .block_hashes
             .insert(block_env.number.to::<u64>(), block_hash.unwrap_or_default());
 
-        if let Some(bal) = state.bal_state.bal_builder.take() {
+        if let Some(bal) = state.take_built_bal() {
             if let Some(state_bal) = bal_test {
                 if &bal != state_bal.as_ref() {
                     println!("Bal mismatch");

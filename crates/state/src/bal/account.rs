@@ -56,12 +56,7 @@ impl AccountBal {
 
     /// Extend account from another account.
     #[inline]
-    pub fn update(
-        &mut self,
-        bal_index: BlockAccessIndex,
-        account: &Account,
-        storage_root_enabled: bool,
-    ) {
+    pub fn update(&mut self, bal_index: BlockAccessIndex, account: &Account) {
         if account.is_selfdestructed_locally() {
             let empty_info = AccountInfo::default();
             self.account_info
@@ -69,7 +64,6 @@ impl AccountBal {
             // Selfdestruct wipes all storage to zero, record writes accordingly.
             self.storage
                 .update_selfdestruct(bal_index, &account.storage);
-            self.update_storage_root(account, storage_root_enabled);
             return;
         }
 
@@ -77,7 +71,6 @@ impl AccountBal {
             .update(bal_index, &account.original_info(), &account.info);
 
         self.storage.update(bal_index, &account.storage);
-        self.update_storage_root(account, storage_root_enabled);
     }
 
     #[inline]
@@ -93,9 +86,8 @@ impl AccountBal {
     }
 
     #[inline]
-    fn update_storage_root(&mut self, account: &Account, storage_root_enabled: bool) {
-        self.storage_root =
-            (storage_root_enabled && self.has_state_changes()).then(|| post_storage_root(account));
+    pub(crate) fn update_storage_root(&mut self, account: &Account) {
+        self.storage_root = self.has_state_changes().then(|| post_storage_root(account));
     }
 
     /// Create an account BAL from EIP-7928 [`AlloyAccountChanges`].
