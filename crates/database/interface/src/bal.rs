@@ -25,6 +25,9 @@ pub struct BalState {
     /// BAL index, used by bal to fetch appropriate values and used by bal_builder on commit
     /// to submit changes.
     pub bal_index: BlockAccessIndex,
+    /// Whether built BAL accounts should include post-block storage roots.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub storage_root_enabled: bool,
 }
 
 impl BalState {
@@ -75,6 +78,13 @@ impl BalState {
     #[inline]
     pub fn with_bal_builder(mut self) -> Self {
         self.bal_builder = Some(Bal::new());
+        self
+    }
+
+    /// Conditionally include post-block storage roots in the built BAL.
+    #[inline]
+    pub const fn with_storage_root_if(mut self, enable: bool) -> Self {
+        self.storage_root_enabled = enable;
         self
     }
 
@@ -198,7 +208,12 @@ impl BalState {
     pub fn commit(&mut self, changes: &EvmState) {
         if let Some(bal_builder) = &mut self.bal_builder {
             for (address, account) in changes.iter() {
-                bal_builder.update_account(self.bal_index, *address, account);
+                bal_builder.update_account(
+                    self.bal_index,
+                    *address,
+                    account,
+                    self.storage_root_enabled,
+                );
             }
         }
     }
@@ -207,7 +222,7 @@ impl BalState {
     #[inline]
     pub fn commit_one(&mut self, address: Address, account: &Account) {
         if let Some(bal_builder) = &mut self.bal_builder {
-            bal_builder.update_account(self.bal_index, address, account);
+            bal_builder.update_account(self.bal_index, address, account, self.storage_root_enabled);
         }
     }
 }

@@ -663,8 +663,14 @@ fn execute_blockchain_test(
         return Ok(());
     }
 
+    // Setup configuration based on fork
+    let spec_id = fork_to_spec_id(test_case.network);
+
     // Create database with initial state
-    let mut state = State::builder().with_bal_builder().build();
+    let mut state = State::builder()
+        .with_bal_builder()
+        .with_bal_storage_root_if(spec_id.is_enabled_in(SpecId::BOGOTA))
+        .build();
 
     // Capture pre-state for debug info
     let mut pre_state_debug = AddressMap::default();
@@ -693,8 +699,6 @@ fn execute_blockchain_test(
         .block_hashes
         .insert(0, test_case.genesis_block_header.hash);
 
-    // Setup configuration based on fork
-    let spec_id = fork_to_spec_id(test_case.network);
     let mut cfg = CfgEnv::default();
     cfg.set_spec_and_mainnet_gas_params(spec_id);
 
@@ -1076,6 +1080,7 @@ fn fork_to_spec_id(fork: ForkSpec) -> SpecId {
         ForkSpec::Prague | ForkSpec::CancunToPragueAtTime15k => SpecId::PRAGUE,
         ForkSpec::Osaka | ForkSpec::PragueToOsakaAtTime15k => SpecId::OSAKA,
         ForkSpec::Amsterdam => SpecId::AMSTERDAM,
+        ForkSpec::Bogota => SpecId::BOGOTA,
         _ => SpecId::AMSTERDAM, // For any unknown forks, use latest available
     }
 }

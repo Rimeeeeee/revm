@@ -160,6 +160,12 @@ impl<DB: Database> StateBuilder<DB> {
         self
     }
 
+    /// Conditionally include post-block storage roots in the built BAL.
+    pub fn with_bal_storage_root_if(mut self, enable: bool) -> Self {
+        self.bal_state = self.bal_state.with_storage_root_if(enable);
+        self
+    }
+
     /// Builds the State with the configured settings.
     pub fn build(mut self) -> State<DB> {
         let use_preloaded_bundle = if self.with_cache_prestate.is_some() {
