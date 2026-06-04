@@ -23,7 +23,7 @@ use crate::{
     frame::EthFrame, instructions::InstructionProvider, ExecuteCommitEvm, ExecuteEvm, Handler,
     MainnetHandler, PrecompileProvider,
 };
-use context::{result::ExecResultAndState, ContextSetters, ContextTr, Evm, JournalTr, TxEnv};
+use context::{result::ExecResultAndState, Cfg, ContextSetters, ContextTr, Evm, JournalTr, TxEnv};
 use database_interface::DatabaseCommit;
 use interpreter::{interpreter::EthInterpreter, InterpreterResult};
 use primitives::{address, eip8037, Address, Bytes, TxKind};
@@ -267,7 +267,8 @@ where
     ) -> Result<Self::ExecutionResult, Self::Error> {
         self.system_call_with_caller(caller, system_contract_address, data)
             .map(|output| {
-                self.db_mut().commit(output.state);
+                let spec_id = self.cfg().spec().into();
+                self.db_mut().commit_with_spec(output.state, spec_id);
                 output.result
             })
     }

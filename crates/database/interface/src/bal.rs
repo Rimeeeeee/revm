@@ -84,9 +84,8 @@ impl BalState {
 
     /// Set the active spec used to determine BAL features.
     #[inline]
-    pub const fn with_spec_id(mut self, spec_id: SpecId) -> Self {
+    pub const fn set_spec_id(&mut self, spec_id: SpecId) {
         self.spec_id = spec_id;
-        self
     }
 
     /// Whether built BAL accounts should include post-block storage roots.
@@ -425,6 +424,12 @@ impl<DB: DatabaseCommit> DatabaseCommit for BalDatabase<DB> {
     fn commit(&mut self, changes: EvmState) {
         self.bal_state.commit(&changes);
         self.db.commit(changes);
+    }
+
+    fn commit_with_spec(&mut self, changes: EvmState, spec_id: SpecId) {
+        self.bal_state.set_spec_id(spec_id);
+        self.bal_state.commit(&changes);
+        self.db.commit_with_spec(changes, spec_id);
     }
 
     fn commit_iter(&mut self, changes: &mut dyn Iterator<Item = (Address, Account)>) {

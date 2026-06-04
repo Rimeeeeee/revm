@@ -4,7 +4,6 @@ use super::{cache::CacheState, state::DBBox, BundleState, State, TransitionState
 use database_interface::{
     bal::BalState, DBErrorMarker, Database, DatabaseRef, EmptyDB, WrapDatabaseRef,
 };
-use primitives::hardfork::SpecId;
 use state::bal::Bal;
 use std::sync::Arc;
 
@@ -158,12 +157,6 @@ impl<DB: Database> StateBuilder<DB> {
         if enable {
             self.bal_state.bal_builder = Some(Bal::new());
         }
-        self
-    }
-
-    /// Set the active spec used to determine BAL features.
-    pub fn with_bal_spec_id(mut self, spec_id: SpecId) -> Self {
-        self.bal_state = self.bal_state.with_spec_id(spec_id);
         self
     }
 

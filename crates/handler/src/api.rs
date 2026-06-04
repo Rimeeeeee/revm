@@ -6,7 +6,7 @@ use context::{
         EVMError, ExecResultAndState, ExecutionResult, HaltReason, InvalidTransaction,
         ResultAndState, ResultVecAndState, TransactionIndexedError,
     },
-    Block, ContextSetters, ContextTr, Database, Evm, JournalTr, Transaction,
+    Block, Cfg, ContextSetters, ContextTr, Database, Evm, JournalTr, Transaction,
 };
 use database_interface::DatabaseCommit;
 use interpreter::{interpreter::EthInterpreter, InterpreterResult};
@@ -217,6 +217,7 @@ where
 {
     #[inline]
     fn commit(&mut self, state: Self::State) {
-        self.db_mut().commit(state);
+        let spec_id = self.cfg().spec().into();
+        self.db_mut().commit_with_spec(state, spec_id);
     }
 }

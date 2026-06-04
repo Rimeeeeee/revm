@@ -9,7 +9,9 @@ use database_interface::{
     bal::{BalState, EvmDatabaseError},
     Database, DatabaseCommit, DatabaseRef, EmptyDB, OnStateHook,
 };
-use primitives::{hash_map, Address, AddressMap, HashMap, StorageKey, StorageValue, B256};
+use primitives::{
+    hardfork::SpecId, hash_map, Address, AddressMap, HashMap, StorageKey, StorageValue, B256,
+};
 use state::{
     bal::{alloy::AlloyBal, Bal, BlockAccessIndex},
     Account, AccountId, AccountInfo,
@@ -402,6 +404,11 @@ impl<DB: Database> DatabaseCommit for State<DB> {
             // Advance the iter to apply all state updates.
             transitions.for_each(|_| {});
         }
+    }
+
+    fn commit_with_spec(&mut self, changes: AddressMap<Account>, spec_id: SpecId) {
+        self.bal_state.set_spec_id(spec_id);
+        self.commit(changes);
     }
 
     fn commit_iter(&mut self, changes: &mut dyn Iterator<Item = (Address, Account)>) {

@@ -667,10 +667,7 @@ fn execute_blockchain_test(
     let spec_id = fork_to_spec_id(test_case.network);
 
     // Create database with initial state
-    let mut state = State::builder()
-        .with_bal_builder()
-        .with_bal_spec_id(spec_id)
-        .build();
+    let mut state = State::builder().with_bal_builder().build();
 
     // Capture pre-state for debug info
     let mut pre_state_debug = AddressMap::default();

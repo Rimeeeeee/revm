@@ -8,7 +8,9 @@ extern crate alloc as std;
 use core::convert::Infallible;
 
 use auto_impl::auto_impl;
-use primitives::{address, Address, AddressMap, StorageKey, StorageValue, B256, U256};
+use primitives::{
+    address, hardfork::SpecId, Address, AddressMap, StorageKey, StorageValue, B256, U256,
+};
 use state::{Account, AccountId, AccountInfo, Bytecode, TransactionId};
 use std::vec::Vec;
 
@@ -105,6 +107,14 @@ pub trait Database {
 pub trait DatabaseCommit {
     /// Commit changes to the database.
     fn commit(&mut self, changes: AddressMap<Account>);
+
+    /// Commit changes to the database with the active spec.
+    ///
+    /// Implementors that do not need fork-specific commit behavior can rely on
+    /// the default implementation.
+    fn commit_with_spec(&mut self, changes: AddressMap<Account>, _spec_id: SpecId) {
+        self.commit(changes);
+    }
 
     /// Commit changes to the database with an iterator.
     ///
