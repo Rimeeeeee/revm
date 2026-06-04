@@ -4,7 +4,7 @@ use core::{
     fmt::Display,
     ops::{Deref, DerefMut},
 };
-use primitives::{Address, AddressMap, StorageKey, StorageValue, B256};
+use primitives::{hardfork::SpecId, Address, AddressMap, StorageKey, StorageValue, B256};
 use state::{
     bal::{alloy::AlloyBal, Bal, BalError, BlockAccessIndex},
     Account, AccountId, AccountInfo, Bytecode, EvmState,
@@ -25,8 +25,8 @@ pub struct BalState {
     /// BAL index, used by bal to fetch appropriate values and used by bal_builder on commit
     /// to submit changes.
     pub bal_index: BlockAccessIndex,
-    /// Whether built BAL accounts should include post-block storage roots.
-    pub storage_root_enabled: bool,
+    /// Active spec used to determine BAL features.
+    pub spec_id: SpecId,
     /// Latest account states used to compute post-block storage roots once.
     pub storage_root_accounts: AddressMap<Account>,
 }
@@ -82,11 +82,17 @@ impl BalState {
         self
     }
 
-    /// Conditionally include post-block storage roots in the built BAL.
+    /// Set the active spec used to determine BAL features.
     #[inline]
-    pub const fn with_storage_root_if(mut self, enable: bool) -> Self {
-        self.storage_root_enabled = enable;
+    pub const fn with_spec_id(mut self, spec_id: SpecId) -> Self {
+        self.spec_id = spec_id;
         self
+    }
+
+    /// Whether built BAL accounts should include post-block storage roots.
+    #[inline]
+    pub const fn is_storage_root_enabled(&self) -> bool {
+        self.spec_id.is_enabled_in(SpecId::BOGOTA)
     }
 
     /// Take BAL builder.
@@ -94,7 +100,7 @@ impl BalState {
     pub fn take_built_bal(&mut self) -> Option<Bal> {
         self.reset_bal_index();
         let mut bal = self.bal_builder.take()?;
-        if self.storage_root_enabled {
+        if self.is_storage_root_enabled() {
             bal.update_storage_roots(core::mem::take(&mut self.storage_root_accounts));
         } else {
             self.storage_root_accounts.clear();
@@ -213,10 +219,11 @@ impl BalState {
     /// Apply changed from EvmState to the bal_builder
     #[inline]
     pub fn commit(&mut self, changes: &EvmState) {
+        let storage_root_enabled = self.is_storage_root_enabled();
         if let Some(bal_builder) = &mut self.bal_builder {
             for (address, account) in changes.iter() {
                 bal_builder.update_account(self.bal_index, *address, account);
-                if self.storage_root_enabled {
+                if storage_root_enabled {
                     self.storage_root_accounts.insert(*address, account.clone());
                 }
             }
@@ -226,9 +233,10 @@ impl BalState {
     /// Commit one account to the BAL builder.
     #[inline]
     pub fn commit_one(&mut self, address: Address, account: &Account) {
+        let storage_root_enabled = self.is_storage_root_enabled();
         if let Some(bal_builder) = &mut self.bal_builder {
             bal_builder.update_account(self.bal_index, address, account);
-            if self.storage_root_enabled {
+            if storage_root_enabled {
                 self.storage_root_accounts.insert(address, account.clone());
             }
         }

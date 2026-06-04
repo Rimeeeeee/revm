@@ -669,7 +669,7 @@ fn execute_blockchain_test(
     // Create database with initial state
     let mut state = State::builder()
         .with_bal_builder()
-        .with_bal_storage_root_if(spec_id.is_enabled_in(SpecId::BOGOTA))
+        .with_bal_spec_id(spec_id)
         .build();
 
     // Capture pre-state for debug info

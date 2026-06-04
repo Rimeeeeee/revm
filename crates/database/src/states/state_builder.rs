@@ -4,6 +4,7 @@ use super::{cache::CacheState, state::DBBox, BundleState, State, TransitionState
 use database_interface::{
     bal::BalState, DBErrorMarker, Database, DatabaseRef, EmptyDB, WrapDatabaseRef,
 };
+use primitives::hardfork::SpecId;
 use state::bal::Bal;
 use std::sync::Arc;
 
@@ -160,9 +161,9 @@ impl<DB: Database> StateBuilder<DB> {
         self
     }
 
-    /// Conditionally include post-block storage roots in the built BAL.
-    pub fn with_bal_storage_root_if(mut self, enable: bool) -> Self {
-        self.bal_state = self.bal_state.with_storage_root_if(enable);
+    /// Set the active spec used to determine BAL features.
+    pub fn with_bal_spec_id(mut self, spec_id: SpecId) -> Self {
+        self.bal_state = self.bal_state.with_spec_id(spec_id);
         self
     }
 
