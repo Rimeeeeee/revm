@@ -175,4 +175,4 @@ inherits = "test"
 opt-level = 3
 
 [patch.crates-io]
-alloy-eip7928 = { git = "https://github.com/Rimeeeeee/eips", branch = "eip-8268" }
+alloy-eip7928 = { git = "https://github.com/Rimeeeeee/eips", branch = "eip-8268-st-testing" }
