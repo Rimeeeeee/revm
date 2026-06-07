@@ -1078,7 +1078,7 @@ fn fork_to_spec_id(fork: ForkSpec) -> SpecId {
         ForkSpec::Osaka | ForkSpec::PragueToOsakaAtTime15k => SpecId::OSAKA,
         ForkSpec::Amsterdam => SpecId::AMSTERDAM,
         ForkSpec::Bogota => SpecId::BOGOTA,
-        _ => SpecId::AMSTERDAM, // For any unknown forks, use latest available
+        _ => SpecId::NEXT, // For any unknown forks, use latest available
     }
 }
 

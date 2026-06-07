@@ -87,7 +87,7 @@ impl SpecId {
     /// **Warning**: This value will change between minor versions as new hard forks are added.
     /// Do not rely on it for stable behavior.
     #[doc(alias = "MAX")]
-    pub const NEXT: Self = Self::AMSTERDAM;
+    pub const NEXT: Self = Self::BOGOTA;
 
     /// Returns the [`SpecId`] for the given [`u8`].
     #[inline]
