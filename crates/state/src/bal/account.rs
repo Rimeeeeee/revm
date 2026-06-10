@@ -7,7 +7,7 @@ use crate::{
 use alloy_eip7928::{
     AccountChanges as AlloyAccountChanges, BalanceChange as AlloyBalanceChange,
     CodeChange as AlloyCodeChange, NonceChange as AlloyNonceChange,
-    SlotChanges as AlloySlotChanges, StorageChange as AlloyStorageChange,
+    SlotChanges as AlloySlotChanges, StorageChange as AlloyStorageChange, StorageRoot,
 };
 use alloy_trie::root::storage_root_unhashed;
 use bytecode::{Bytecode, BytecodeDecodeError};
@@ -27,7 +27,7 @@ pub struct AccountBal {
     /// Storage bal.
     pub storage: StorageBal,
     /// Post-block storage trie root, as per eip 8268.
-    pub storage_root: Option<B256>,
+    pub storage_root: Option<StorageRoot>,
 }
 
 impl Deref for AccountBal {
@@ -236,10 +236,15 @@ impl AccountBal {
     }
 }
 
-fn post_storage_root(account: &Account) -> B256 {
-    storage_root_unhashed(account.storage.iter().filter_map(|(key, slot)| {
+fn post_storage_root(account: &Account) -> StorageRoot {
+    let mut storage = account.storage.iter().filter_map(|(key, slot)| {
         (!slot.present_value.is_zero()).then_some((B256::from(*key), slot.present_value))
-    }))
+    });
+    storage.next().map_or(StorageRoot::Empty, |first| {
+        StorageRoot::Root(storage_root_unhashed(
+            core::iter::once(first).chain(storage),
+        ))
+    })
 }
 
 /// Account info bal structure.

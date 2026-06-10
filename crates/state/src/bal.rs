@@ -325,7 +325,7 @@ mod tests {
     use alloy_eip7928::{
         AccountChanges as AlloyAccountChanges, BalanceChange as AlloyBalanceChange,
         CodeChange as AlloyCodeChange, NonceChange as AlloyNonceChange,
-        SlotChanges as AlloySlotChanges, StorageChange as AlloyStorageChange,
+        SlotChanges as AlloySlotChanges, StorageChange as AlloyStorageChange, StorageRoot,
     };
     use alloy_trie::root::storage_root_unhashed;
     use bytecode::Bytecode;
@@ -493,14 +493,17 @@ mod tests {
         let alloy_bal = vec![AlloyAccountChanges {
             address,
             balance_changes: vec![AlloyBalanceChange::new(idx(1), U256::from(20))],
-            storage_root: Some(storage_root),
+            storage_root: Some(StorageRoot::Root(storage_root)),
             ..Default::default()
         }];
 
         let bal = Bal::try_from_alloy(alloy_bal).unwrap();
         let alloy_bal = bal.into_alloy_bal();
 
-        assert_eq!(alloy_bal[0].storage_root, Some(storage_root));
+        assert_eq!(
+            alloy_bal[0].storage_root,
+            Some(StorageRoot::Root(storage_root))
+        );
     }
 
     #[test]
@@ -524,7 +527,10 @@ mod tests {
 
         assert_eq!(
             alloy_bal[0].storage_root,
-            Some(storage_root_unhashed([(B256::from(slot), value)]))
+            Some(StorageRoot::Root(storage_root_unhashed([(
+                B256::from(slot),
+                value
+            )])))
         );
     }
 
@@ -548,7 +554,10 @@ mod tests {
         let alloy_bal = bal.into_alloy_bal();
         assert_eq!(
             alloy_bal[0].storage_root,
-            Some(storage_root_unhashed([(B256::from(slot), value)]))
+            Some(StorageRoot::Root(storage_root_unhashed([(
+                B256::from(slot),
+                value
+            )])))
         );
         assert!(!alloy_bal[0].balance_changes.is_empty());
         assert!(!alloy_bal[0].storage_changes.is_empty());
@@ -564,11 +573,34 @@ mod tests {
         bal.update_account(idx(1), address, &account);
         bal.update_storage_roots([(address, account.clone())]);
         let alloy_bal = bal.into_alloy_bal();
-        assert_eq!(
-            alloy_bal[0].storage_root,
-            Some(storage_root_unhashed(core::iter::empty::<(B256, U256)>()))
-        );
+        assert_eq!(alloy_bal[0].storage_root, Some(StorageRoot::Empty));
         assert!(!alloy_bal[0].balance_changes.is_empty());
+    }
+
+    #[test]
+    fn update_account_with_cleared_storage_fills_empty_storage_root() {
+        let address = Address::with_last_byte(1);
+        let slot = U256::from(1);
+        let mut account = Account::from(AccountInfo::from_balance(U256::from(10)));
+        account = account.with_storage(
+            [(
+                slot,
+                crate::EvmStorageSlot::new_changed(
+                    U256::from(10),
+                    U256::ZERO,
+                    crate::TransactionId::ZERO,
+                ),
+            )]
+            .into_iter(),
+        );
+
+        let mut bal = Bal::new();
+        bal.update_account(idx(1), address, &account);
+        bal.update_storage_roots([(address, account.clone())]);
+        let alloy_bal = bal.into_alloy_bal();
+
+        assert_eq!(alloy_bal[0].storage_root, Some(StorageRoot::Empty));
+        assert!(!alloy_bal[0].storage_changes.is_empty());
     }
 
     #[test]
@@ -596,7 +628,10 @@ mod tests {
 
         assert_eq!(
             alloy_bal[0].storage_root,
-            Some(storage_root_unhashed([(B256::from(slot), value)]))
+            Some(StorageRoot::Root(storage_root_unhashed([(
+                B256::from(slot),
+                value
+            )])))
         );
         assert!(!alloy_bal[0].storage_changes.is_empty());
     }
@@ -651,7 +686,10 @@ mod tests {
 
         assert_eq!(
             alloy_bal[0].storage_root,
-            Some(storage_root_unhashed([(B256::from(slot), value)]))
+            Some(StorageRoot::Root(storage_root_unhashed([(
+                B256::from(slot),
+                value
+            )])))
         );
         assert!(!alloy_bal[0].storage_changes.is_empty());
     }
@@ -681,7 +719,10 @@ mod tests {
 
         assert_eq!(
             alloy_bal[0].storage_root,
-            Some(storage_root_unhashed([(B256::from(slot), value)]))
+            Some(StorageRoot::Root(storage_root_unhashed([(
+                B256::from(slot),
+                value
+            )])))
         );
         assert!(!alloy_bal[0].storage_changes.is_empty());
     }
