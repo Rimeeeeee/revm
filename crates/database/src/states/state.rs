@@ -4,6 +4,8 @@ use super::{
     bundle_state::BundleRetention, cache::CacheState, plain_account::PlainStorage, BundleState,
     CacheAccount, StateBuilder, TransitionAccount, TransitionState,
 };
+use std::vec::Vec;
+
 use bytecode::Bytecode;
 use database_interface::{
     bal::{BalState, EvmDatabaseError},
