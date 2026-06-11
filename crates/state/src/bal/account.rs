@@ -75,18 +75,26 @@ impl AccountBal {
 
     #[inline]
     fn has_state_changes(&self) -> bool {
-        !self.account_info.balance.is_empty()
+        let has_state_changes = !self.account_info.balance.is_empty()
             || !self.account_info.nonce.is_empty()
             || !self.account_info.code.is_empty()
             || self
                 .storage
                 .storage
                 .values()
-                .any(|writes| !writes.is_empty())
+                .any(|writes| !writes.is_empty());
+        tracing::info!(has_state_changes, "account BAL state changes");
+        has_state_changes
     }
 
     #[inline]
-    pub(crate) fn update_storage_root(&mut self, account: &Account) {
+    pub(crate) fn update_storage_root(&mut self, address: Address, account: &Account) {
+        tracing::info!(
+            ?address,
+            storage_slots = account.storage.len(),
+            status = ?account.status,
+            "updating BAL storage root"
+        );
         self.storage_root = self.has_state_changes().then(|| post_storage_root(account));
     }
 
@@ -176,7 +184,6 @@ impl AccountBal {
     /// <https://eips.ethereum.org/EIPS/eip-7928#ordering-uniqueness-and-determinism>.
     #[inline]
     pub fn into_alloy_account(self, address: Address) -> AlloyAccountChanges {
-        let has_state_changes = self.has_state_changes();
         let storage_len = self.storage.storage.len();
         let mut storage_reads = Vec::with_capacity(storage_len);
         let mut storage_changes = Vec::with_capacity(storage_len);
@@ -222,7 +229,7 @@ impl AccountBal {
             .collect::<Vec<_>>();
         code_changes.sort_unstable_by_key(|change| change.block_access_index);
 
-        let storage_root = has_state_changes.then_some(self.storage_root).flatten();
+        let storage_root = self.storage_root;
 
         AlloyAccountChanges {
             address,

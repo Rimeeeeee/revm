@@ -29,6 +29,7 @@ alloy-trie = { workspace = true, features = ["ethereum"] }
 # misc
 bitflags.workspace = true
 nonmax = { version = "0.5.5", default-features = false }
+tracing.workspace = true
 
 # Optional
 serde = { workspace = true, features = ["derive", "rc"], optional = true }

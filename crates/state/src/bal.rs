@@ -143,7 +143,7 @@ impl Bal {
     pub fn update_storage_roots(&mut self, accounts: impl IntoIterator<Item = (Address, Account)>) {
         for (address, account) in accounts {
             if let Some(bal_account) = self.accounts.get_mut(&address) {
-                bal_account.update_storage_root(&account);
+                bal_account.update_storage_root(address, &account);
             }
         }
     }
