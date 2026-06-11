@@ -206,6 +206,7 @@ impl AccountBal {
             balance_changes,
             nonce_changes,
             code_changes,
+            storage_root: None,
         }
     }
 }

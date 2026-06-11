@@ -383,6 +383,7 @@ mod tests {
         );
 
         let account = &alloy_bal[0];
+        assert_eq!(account.storage_root, None);
         assert_eq!(account.storage_reads, vec![U256::from(1), U256::from(3)]);
         assert_eq!(
             account
@@ -465,6 +466,7 @@ mod tests {
             balance_changes: vec![AlloyBalanceChange::new(idx(2), U256::from(20))],
             nonce_changes: vec![AlloyNonceChange::new(idx(3), 30)],
             code_changes: vec![AlloyCodeChange::new(idx(4), code_bytes.clone())],
+            storage_root: None,
         }];
 
         let borrowed = Bal::clone_from_alloy(&alloy_bal).unwrap();
