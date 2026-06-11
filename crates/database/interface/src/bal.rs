@@ -6,7 +6,10 @@ use core::{
 };
 use primitives::{Address, AddressMap, StorageKey, StorageValue, B256};
 use state::{
-    bal::{alloy::AlloyBal, Bal, BalError, BlockAccessIndex},
+    bal::{
+        alloy::{AlloyBal, StorageRoot},
+        Bal, BalError, BlockAccessIndex,
+    },
     Account, AccountId, AccountInfo, Bytecode, EvmState,
 };
 use std::sync::Arc;
@@ -233,6 +236,27 @@ impl BalState {
             }
         }
     }
+
+    /// Commit one account to the BAL builder, using an externally computed storage root if present.
+    #[inline]
+    pub fn commit_one_with_storage_root(
+        &mut self,
+        address: Address,
+        account: &Account,
+        storage_root: Option<StorageRoot>,
+    ) {
+        if let Some(bal_builder) = &mut self.bal_builder {
+            bal_builder.update_account(self.bal_index, address, account);
+            if self.storage_root_enabled {
+                if let Some(storage_root) = storage_root {
+                    bal_builder.update_storage_root(address, storage_root);
+                    self.storage_root_accounts.remove(&address);
+                } else {
+                    self.storage_root_accounts.insert(address, account.clone());
+                }
+            }
+        }
+    }
 }
 
 /// Database implementation for BAL.
@@ -388,6 +412,13 @@ impl<DB: Database> Database for BalDatabase<DB> {
     }
 
     #[inline]
+    fn storage_root(&mut self, address: Address) -> Result<Option<StorageRoot>, Self::Error> {
+        self.db
+            .storage_root(address)
+            .map_err(EvmDatabaseError::Database)
+    }
+
+    #[inline]
     fn storage_by_account_id(
         &mut self,
         address: Address,
@@ -423,6 +454,18 @@ impl<DB: DatabaseCommit> DatabaseCommit for BalDatabase<DB> {
         let bal_state = &mut self.bal_state;
         let mut changes = changes.map(|(address, account)| {
             bal_state.commit_one(address, &account);
+            (address, account)
+        });
+        self.db.commit_iter(&mut changes);
+    }
+
+    fn commit_balance_increments(
+        &mut self,
+        changes: &mut dyn Iterator<Item = (Address, Account, Option<StorageRoot>)>,
+    ) {
+        let bal_state = &mut self.bal_state;
+        let mut changes = changes.map(|(address, account, storage_root)| {
+            bal_state.commit_one_with_storage_root(address, &account, storage_root);
             (address, account)
         });
         self.db.commit_iter(&mut changes);

@@ -4,7 +4,7 @@
 pub use alloy_eip7928::{
     BalanceChange as AlloyBalanceChange, BlockAccessList as AlloyBal,
     CodeChange as AlloyCodeChange, NonceChange as AlloyNonceChange,
-    StorageChange as AlloyStorageChange,
+    StorageChange as AlloyStorageChange, StorageRoot,
 };
 
 use crate::bal::{AccountBal, Bal, BalWrites};

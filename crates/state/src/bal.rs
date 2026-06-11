@@ -21,7 +21,7 @@ pub use alloy_eip7928::BlockAccessIndex;
 pub use writes::BalWrites;
 
 use crate::{Account, AccountId, AccountInfo};
-use alloy_eip7928::BlockAccessList as AlloyBal;
+use alloy_eip7928::{BlockAccessList as AlloyBal, StorageRoot};
 use primitives::{Address, AddressIndexMap, StorageKey, StorageValue};
 
 /// BAL structure.
@@ -145,6 +145,13 @@ impl Bal {
             if let Some(bal_account) = self.accounts.get_mut(&address) {
                 bal_account.update_storage_root(address, &account);
             }
+        }
+    }
+
+    /// Update a post-block storage root from an externally computed final account storage root.
+    pub fn update_storage_root(&mut self, address: Address, storage_root: StorageRoot) {
+        if let Some(bal_account) = self.accounts.get_mut(&address) {
+            bal_account.update_storage_root_from_root(storage_root);
         }
     }
 

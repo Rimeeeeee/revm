@@ -98,6 +98,11 @@ impl AccountBal {
         self.storage_root = self.has_state_changes().then(|| post_storage_root(account));
     }
 
+    #[inline]
+    pub(crate) fn update_storage_root_from_root(&mut self, storage_root: StorageRoot) {
+        self.storage_root = self.has_state_changes().then_some(storage_root);
+    }
+
     /// Create an account BAL from EIP-7928 [`AlloyAccountChanges`].
     ///
     /// # Errors

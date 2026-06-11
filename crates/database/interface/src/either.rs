@@ -3,7 +3,7 @@
 use crate::{Database, DatabaseCommit, DatabaseRef};
 use either::Either;
 use primitives::{Address, AddressMap, StorageKey, StorageValue, B256};
-use state::{Account, AccountId, AccountInfo, Bytecode};
+use state::{bal::alloy::StorageRoot, Account, AccountId, AccountInfo, Bytecode};
 
 impl<L, R> Database for Either<L, R>
 where
@@ -34,6 +34,13 @@ where
         match self {
             Self::Left(db) => db.storage(address, index),
             Self::Right(db) => db.storage(address, index),
+        }
+    }
+
+    fn storage_root(&mut self, address: Address) -> Result<Option<StorageRoot>, Self::Error> {
+        match self {
+            Self::Left(db) => db.storage_root(address),
+            Self::Right(db) => db.storage_root(address),
         }
     }
 
@@ -73,6 +80,16 @@ where
         match self {
             Self::Left(db) => db.commit_iter(changes),
             Self::Right(db) => db.commit_iter(changes),
+        }
+    }
+
+    fn commit_balance_increments(
+        &mut self,
+        changes: &mut dyn Iterator<Item = (Address, Account, Option<StorageRoot>)>,
+    ) {
+        match self {
+            Self::Left(db) => db.commit_balance_increments(changes),
+            Self::Right(db) => db.commit_balance_increments(changes),
         }
     }
 }

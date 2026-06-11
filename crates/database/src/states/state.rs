@@ -11,7 +11,10 @@ use database_interface::{
 };
 use primitives::{hash_map, Address, AddressMap, HashMap, StorageKey, StorageValue, B256};
 use state::{
-    bal::{alloy::AlloyBal, Bal, BlockAccessIndex},
+    bal::{
+        alloy::{AlloyBal, StorageRoot},
+        Bal, BlockAccessIndex,
+    },
     Account, AccountId, AccountInfo,
 };
 use std::{boxed::Box, sync::Arc};
@@ -356,6 +359,12 @@ impl<DB: Database> Database for State<DB> {
             .map_err(EvmDatabaseError::Database)
     }
 
+    fn storage_root(&mut self, address: Address) -> Result<Option<StorageRoot>, Self::Error> {
+        self.database
+            .storage_root(address)
+            .map_err(EvmDatabaseError::Database)
+    }
+
     fn storage_by_account_id(
         &mut self,
         address: Address,
@@ -416,6 +425,44 @@ impl<DB: Database> DatabaseCommit for State<DB> {
             .apply_evm_state_iter(changes, |address, account| {
                 self.bal_state.commit_one(*address, account);
             });
+        if let Some(s) = self.transition_state.as_mut() {
+            s.add_transitions(transitions)
+        } else {
+            // Advance the iter to apply all state updates.
+            transitions.for_each(|_| {});
+        }
+    }
+
+    fn commit_balance_increments(
+        &mut self,
+        changes: &mut dyn Iterator<Item = (Address, Account, Option<StorageRoot>)>,
+    ) {
+        let changes = changes.collect::<Vec<_>>();
+        if let Some(hook) = self.state_hook.as_mut() {
+            let evm_state = changes
+                .iter()
+                .map(|(address, account, _)| (*address, account.clone()))
+                .collect::<AddressMap<_>>();
+            hook.on_state(&evm_state);
+        }
+
+        let storage_roots = changes
+            .iter()
+            .filter_map(|(address, _, storage_root)| storage_root.map(|root| (*address, root)))
+            .collect::<AddressMap<_>>();
+
+        let transitions = self.cache.apply_evm_state_iter(
+            changes
+                .into_iter()
+                .map(|(address, account, _)| (address, account)),
+            |address, account| {
+                self.bal_state.commit_one_with_storage_root(
+                    *address,
+                    account,
+                    storage_roots.get(address).copied(),
+                );
+            },
+        );
         if let Some(s) = self.transition_state.as_mut() {
             s.add_transitions(transitions)
         } else {

@@ -9,7 +9,7 @@ use core::convert::Infallible;
 
 use auto_impl::auto_impl;
 use primitives::{address, Address, AddressMap, StorageKey, StorageValue, B256, U256};
-use state::{Account, AccountId, AccountInfo, Bytecode, TransactionId};
+use state::{bal::alloy::StorageRoot, Account, AccountId, AccountInfo, Bytecode, TransactionId};
 use std::vec::Vec;
 
 /// Address with all `0xff..ff` in it. Used for testing.
@@ -76,6 +76,16 @@ pub trait Database {
     fn storage(&mut self, address: Address, index: StorageKey)
         -> Result<StorageValue, Self::Error>;
 
+    /// Gets the account's full current storage root, if the database can provide it.
+    ///
+    /// The default implementation returns `None`, because the basic EVM database API can read
+    /// individual storage slots but cannot enumerate an account's full storage trie.
+    #[inline]
+    fn storage_root(&mut self, address: Address) -> Result<Option<StorageRoot>, Self::Error> {
+        let _ = address;
+        Ok(None)
+    }
+
     /// Gets storage value of account by its id. By default call [`Database::storage`] method.
     ///
     /// If basic account sets account_id inside [`AccountInfo::account_id`], evm will call this
@@ -121,6 +131,18 @@ pub trait DatabaseCommit {
         let changes: AddressMap<Account> = changes.collect();
         self.commit(changes);
     }
+
+    /// Commit balance increments with optional externally computed storage roots.
+    ///
+    /// Implementors that build BAL storage roots can use the supplied root instead of deriving it
+    /// from a transition account's partial storage cache.
+    fn commit_balance_increments(
+        &mut self,
+        changes: &mut dyn Iterator<Item = (Address, Account, Option<StorageRoot>)>,
+    ) {
+        let mut changes = changes.map(|(address, account, _)| (address, account));
+        self.commit_iter(&mut changes);
+    }
 }
 
 /// Inherent implementation for `dyn DatabaseCommit` trait objects.
@@ -158,6 +180,13 @@ pub trait DatabaseRef {
     /// Gets storage value of address at index.
     fn storage_ref(&self, address: Address, index: StorageKey)
         -> Result<StorageValue, Self::Error>;
+
+    /// Gets the account's full current storage root, if the database can provide it.
+    #[inline]
+    fn storage_root_ref(&self, address: Address) -> Result<Option<StorageRoot>, Self::Error> {
+        let _ = address;
+        Ok(None)
+    }
 
     /// Gets storage value of account by its id.
     ///
@@ -211,6 +240,11 @@ impl<T: DatabaseRef> Database for WrapDatabaseRef<T> {
     }
 
     #[inline]
+    fn storage_root(&mut self, address: Address) -> Result<Option<StorageRoot>, Self::Error> {
+        self.0.storage_root_ref(address)
+    }
+
+    #[inline]
     fn storage_by_account_id(
         &mut self,
         address: Address,
@@ -236,6 +270,14 @@ impl<T: DatabaseRef + DatabaseCommit> DatabaseCommit for WrapDatabaseRef<T> {
     #[inline]
     fn commit_iter(&mut self, changes: &mut dyn Iterator<Item = (Address, Account)>) {
         self.0.commit_iter(changes)
+    }
+
+    #[inline]
+    fn commit_balance_increments(
+        &mut self,
+        changes: &mut dyn Iterator<Item = (Address, Account, Option<StorageRoot>)>,
+    ) {
+        self.0.commit_balance_increments(changes)
     }
 }
 
@@ -304,12 +346,13 @@ pub trait DatabaseCommitExt: Database + DatabaseCommit {
                     .balance
                     .saturating_add(U256::from(balance));
                 original_account.mark_touch();
-                Ok((address, original_account))
+                let storage_root = self.storage_root(address)?;
+                Ok((address, original_account, storage_root))
             })
             // Unfortunately must collect here to short circuit on error
             .collect::<Result<Vec<_>, _>>()?;
 
-        self.commit_iter(&mut transitions.into_iter());
+        self.commit_balance_increments(&mut transitions.into_iter());
         Ok(())
     }
 
@@ -472,5 +515,59 @@ mod tests {
 
         let bal = db.bal_state.take_built_bal().expect("BAL should be built");
         assert!(bal.accounts.get(&address).is_some());
+    }
+
+    #[test]
+    fn increment_balances_uses_database_storage_root_for_bal() {
+        struct MockDb {
+            storage_root: StorageRoot,
+        }
+
+        impl Database for MockDb {
+            type Error = Infallible;
+
+            fn basic(&mut self, _address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+                Ok(Some(AccountInfo::from_balance(U256::from(1))))
+            }
+
+            fn code_by_hash(&mut self, _code_hash: B256) -> Result<Bytecode, Self::Error> {
+                Ok(Bytecode::default())
+            }
+
+            fn storage(
+                &mut self,
+                _address: Address,
+                _index: StorageKey,
+            ) -> Result<StorageValue, Self::Error> {
+                Ok(StorageValue::ZERO)
+            }
+
+            fn storage_root(
+                &mut self,
+                _address: Address,
+            ) -> Result<Option<StorageRoot>, Self::Error> {
+                Ok(Some(self.storage_root))
+            }
+
+            fn block_hash(&mut self, _number: u64) -> Result<B256, Self::Error> {
+                Ok(B256::ZERO)
+            }
+        }
+
+        impl DatabaseCommit for MockDb {
+            fn commit(&mut self, _changes: AddressMap<Account>) {}
+        }
+
+        let address = Address::with_last_byte(1);
+        let storage_root = StorageRoot::Root(B256::with_last_byte(0x42));
+        let mut db = bal::BalDatabase::new(MockDb { storage_root }).with_bal_builder();
+        db.bal_state.storage_root_enabled = true;
+
+        db.increment_balances([(address, 10)]).unwrap();
+
+        let bal = db.bal_state.take_built_bal().expect("BAL should be built");
+        let account = bal.into_alloy_bal().remove(0);
+        assert_eq!(account.address, address);
+        assert_eq!(account.storage_root, Some(storage_root));
     }
 }
