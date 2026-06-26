@@ -14,6 +14,29 @@ use core::cmp::Ordering;
 use interpreter::InitialAndFloorGas;
 use primitives::{hardfork::SpecId, AddressMap, HashSet, StorageKey, U256};
 use state::AccountInfo;
+use std::vec::Vec;
+
+fn insert_warm_accesses(
+    map: &mut AddressMap<HashSet<StorageKey>>,
+    warm_accesses: &[(primitives::Address, Vec<StorageKey>)],
+) {
+    for (address, storage_keys) in warm_accesses {
+        map.entry(*address)
+            .or_default()
+            .extend(storage_keys.iter().copied());
+    }
+}
+
+/// Loads WAM entries used by EIP-8289.
+pub fn load_warm_accesses<CTX: ContextTr>(context: &mut CTX) {
+    let mut map = AddressMap::default();
+    if let Some(warm_accesses) = context.block().warm_access_list() {
+        insert_warm_accesses(&mut map, warm_accesses);
+    }
+    if !map.is_empty() {
+        context.journal_mut().warm_access_list(map);
+    }
+}
 
 /// Loads and warms accounts for execution, including precompiles and access list.
 pub fn load_accounts<
@@ -47,18 +70,24 @@ pub fn load_accounts<
     }
 
     // Load access list
+    let mut map: AddressMap<HashSet<StorageKey>> = AddressMap::default();
+    if let Some(warm_accesses) = context.block().warm_access_list() {
+        insert_warm_accesses(&mut map, warm_accesses);
+    }
+
     let (tx, journal) = context.tx_journal_mut();
     // legacy is only tx type that does not have access list.
     if tx.tx_type() != TransactionType::Legacy {
         if let Some(access_list) = tx.access_list() {
-            let mut map: AddressMap<HashSet<StorageKey>> = AddressMap::default();
             for item in access_list {
                 map.entry(*item.address())
                     .or_default()
                     .extend(item.storage_slots().map(|key| U256::from_be_bytes(key.0)));
             }
-            journal.warm_access_list(map);
         }
+    }
+    if !map.is_empty() {
+        journal.warm_access_list(map);
     }
 
     Ok(())

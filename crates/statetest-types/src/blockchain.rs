@@ -357,6 +357,7 @@ impl BlockHeader {
                 .unwrap_or_default()
                 .try_into()
                 .unwrap_or(u64::MAX),
+            warm_accesses: Default::default(),
         }
     }
 }

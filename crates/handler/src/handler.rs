@@ -126,6 +126,7 @@ pub trait Handler {
     ) -> Result<ExecutionResult<Self::HaltReason>, Self::Error> {
         // dummy values that are not used.
         let init_and_floor_gas = InitialAndFloorGas::new(0, 0);
+        pre_execution::load_warm_accesses(evm.ctx_mut());
         // call execution and than output.
         match self
             .execution(evm, &init_and_floor_gas)

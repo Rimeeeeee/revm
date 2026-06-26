@@ -6,7 +6,11 @@ pub mod blob;
 pub use blob::{calc_blob_gasprice, BlobExcessGasAndPrice};
 
 use auto_impl::auto_impl;
-use primitives::{Address, B256, U256};
+use primitives::{Address, StorageKey, B256, U256};
+use std::vec::Vec;
+
+/// Warm access entries that should be treated as warm for gas accounting.
+pub type WarmAccessList = Vec<(Address, Vec<StorageKey>)>;
 
 /// Trait for retrieving block information required for execution.
 #[auto_impl(&, &mut, Box, Arc)]
@@ -76,5 +80,10 @@ pub trait Block {
     /// [EIP-7843]: https://eips.ethereum.org/EIPS/eip-7843
     fn slot_num(&self) -> u64 {
         0
+    }
+
+    /// Returns block-level accesses that should be warm before execution starts.
+    fn warm_access_list(&self) -> Option<&WarmAccessList> {
+        None
     }
 }
