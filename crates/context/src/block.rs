@@ -1,7 +1,6 @@
 //! This module contains [`BlockEnv`] and it implements [`Block`] trait.
 use context_interface::block::{BlobExcessGasAndPrice, Block, WarmAccessList};
 use primitives::{eip4844::BLOB_BASE_FEE_UPDATE_FRACTION_PRAGUE, Address, B256, U256};
-use std::vec::Vec;
 
 /// The block environment
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -48,7 +47,7 @@ pub struct BlockEnv {
     /// [EIP-7843]: https://eips.ethereum.org/EIPS/eip-7843
     pub slot_num: u64,
     /// Block-level warm accesses used for EIP-8289 warm gas accounting.
-    pub warm_accesses: WarmAccessList,
+    pub warm_accesses: Option<WarmAccessList>,
 }
 
 impl BlockEnv {
@@ -114,7 +113,7 @@ impl Block for BlockEnv {
 
     #[inline]
     fn warm_access_list(&self) -> Option<&WarmAccessList> {
-        (!self.warm_accesses.is_empty()).then_some(&self.warm_accesses)
+        self.warm_accesses.as_ref()
     }
 }
 
@@ -133,7 +132,7 @@ impl Default for BlockEnv {
                 BLOB_BASE_FEE_UPDATE_FRACTION_PRAGUE,
             )),
             slot_num: 0,
-            warm_accesses: Vec::new(),
+            warm_accesses: None,
         }
     }
 }
