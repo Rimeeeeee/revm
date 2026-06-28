@@ -136,3 +136,23 @@ impl Default for BlockEnv {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_block_env_has_no_warm_access_list() {
+        assert!(BlockEnv::default().warm_access_list().is_none());
+    }
+
+    #[test]
+    fn block_env_returns_configured_warm_access_list() {
+        let address = Address::with_last_byte(1);
+        let mut block_env = BlockEnv::default();
+        block_env.warm_accesses = Some(vec![(address, vec![U256::from(1)])]);
+
+        let warm_accesses = block_env.warm_access_list().unwrap();
+        assert_eq!(warm_accesses.as_slice(), &[(address, vec![U256::from(1)])]);
+    }
+}
