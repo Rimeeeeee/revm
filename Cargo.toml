@@ -66,12 +66,12 @@ alloy-primitives = { version = "1.5.2", default-features = false }
 alloy-rlp = { version = "0.3.12", default-features = false }
 alloy-trie = { version = "0.9", default-features = false }
 alloy-sol-types = { version = "1.5.2", default-features = false }
-alloy-consensus = { version = "2.0.0", default-features = false }
-alloy-eips = { version = "2.0.0", default-features = false }
-alloy-provider = { version = "2.0.0", default-features = false }
-alloy-signer = { version = "2.0.0", default-features = false }
-alloy-signer-local = { version = "2.0.0", default-features = false }
-alloy-transport = { version = "2.0.0", default-features = false }
+alloy-consensus = { version = "2.1.0", default-features = false }
+alloy-eips = { version = "2.1.0", default-features = false }
+alloy-provider = { version = "2.1.0", default-features = false }
+alloy-signer = { version = "2.1.0", default-features = false }
+alloy-signer-local = { version = "2.1.0", default-features = false }
+alloy-transport = { version = "2.1.0", default-features = false }
 
 # precompiles
 ark-bls12-381 = { version = "0.5", default-features = false }
@@ -173,3 +173,10 @@ inherits = "profiling"
 [profile.ethtests]
 inherits = "test"
 opt-level = 3
+
+[patch.crates-io]
+alloy-consensus = { git = "https://github.com/Rimeeeeee/alloy", branch = "eip-8289" }
+alloy-provider = { git = "https://github.com/Rimeeeeee/alloy", branch = "eip-8289" }
+alloy-signer = { git = "https://github.com/Rimeeeeee/alloy", branch = "eip-8289" }
+alloy-signer-local = { git = "https://github.com/Rimeeeeee/alloy", branch = "eip-8289" }
+alloy-transport = { git = "https://github.com/Rimeeeeee/alloy", branch = "eip-8289" }
