@@ -176,6 +176,7 @@ opt-level = 3
 
 [patch.crates-io]
 alloy-consensus = { git = "https://github.com/Rimeeeeee/alloy", branch = "eip-8289" }
+alloy-eips = { git = "https://github.com/Rimeeeeee/alloy", branch = "eip-8289" }
 alloy-provider = { git = "https://github.com/Rimeeeeee/alloy", branch = "eip-8289" }
 alloy-signer = { git = "https://github.com/Rimeeeeee/alloy", branch = "eip-8289" }
 alloy-signer-local = { git = "https://github.com/Rimeeeeee/alloy", branch = "eip-8289" }

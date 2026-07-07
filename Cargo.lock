@@ -45,10 +45,10 @@ name = "alloy-consensus"
 version = "2.1.0"
 source = "git+https://github.com/Rimeeeeee/alloy?branch=eip-8289#a3dc77234dbd6a09c2b861ecb407505d9f717728"
 dependencies = [
- "alloy-eips 2.1.0",
+ "alloy-eips",
  "alloy-primitives",
  "alloy-rlp",
- "alloy-serde 2.1.0",
+ "alloy-serde",
  "alloy-trie",
  "alloy-tx-macros",
  "auto_impl",
@@ -72,10 +72,10 @@ version = "2.1.0"
 source = "git+https://github.com/Rimeeeeee/alloy?branch=eip-8289#a3dc77234dbd6a09c2b861ecb407505d9f717728"
 dependencies = [
  "alloy-consensus",
- "alloy-eips 2.1.0",
+ "alloy-eips",
  "alloy-primitives",
  "alloy-rlp",
- "alloy-serde 2.1.0",
+ "alloy-serde",
  "serde",
 ]
 
@@ -143,30 +143,7 @@ dependencies = [
  "alloy-eip7928",
  "alloy-primitives",
  "alloy-rlp",
- "alloy-serde 2.1.0",
- "auto_impl",
- "borsh",
- "c-kzg",
- "derive_more",
- "either",
- "serde",
- "serde_with",
- "sha2",
-]
-
-[[package]]
-name = "alloy-eips"
-version = "2.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea4c0453065b9206acc0f869a258dc8dcbbd595e144b4446f2c493a24a814d1f"
-dependencies = [
- "alloy-eip2124",
- "alloy-eip2930",
- "alloy-eip7702",
- "alloy-eip7928",
- "alloy-primitives",
- "alloy-rlp",
- "alloy-serde 2.1.1",
+ "alloy-serde",
  "auto_impl",
  "borsh",
  "c-kzg",
@@ -210,13 +187,13 @@ source = "git+https://github.com/Rimeeeeee/alloy?branch=eip-8289#a3dc77234dbd6a0
 dependencies = [
  "alloy-consensus",
  "alloy-consensus-any",
- "alloy-eips 2.1.0",
+ "alloy-eips",
  "alloy-json-rpc",
  "alloy-network-primitives",
  "alloy-primitives",
  "alloy-rpc-types-any",
  "alloy-rpc-types-eth",
- "alloy-serde 2.1.0",
+ "alloy-serde",
  "alloy-signer",
  "alloy-sol-types",
  "async-trait",
@@ -234,9 +211,9 @@ version = "2.1.0"
 source = "git+https://github.com/Rimeeeeee/alloy?branch=eip-8289#a3dc77234dbd6a09c2b861ecb407505d9f717728"
 dependencies = [
  "alloy-consensus",
- "alloy-eips 2.1.0",
+ "alloy-eips",
  "alloy-primitives",
- "alloy-serde 2.1.0",
+ "alloy-serde",
  "serde",
 ]
 
@@ -278,7 +255,7 @@ source = "git+https://github.com/Rimeeeeee/alloy?branch=eip-8289#a3dc77234dbd6a0
 dependencies = [
  "alloy-chains",
  "alloy-consensus",
- "alloy-eips 2.1.0",
+ "alloy-eips",
  "alloy-json-rpc",
  "alloy-network",
  "alloy-network-primitives",
@@ -362,7 +339,7 @@ dependencies = [
  "alloy-network-primitives",
  "alloy-primitives",
  "alloy-rpc-types-eth",
- "alloy-serde 2.1.0",
+ "alloy-serde",
  "serde",
  "serde_json",
 ]
@@ -374,11 +351,11 @@ source = "git+https://github.com/Rimeeeeee/alloy?branch=eip-8289#a3dc77234dbd6a0
 dependencies = [
  "alloy-consensus",
  "alloy-consensus-any",
- "alloy-eips 2.1.0",
+ "alloy-eips",
  "alloy-network-primitives",
  "alloy-primitives",
  "alloy-rlp",
- "alloy-serde 2.1.0",
+ "alloy-serde",
  "alloy-sol-types",
  "itertools 0.14.0",
  "serde",
@@ -391,17 +368,6 @@ dependencies = [
 name = "alloy-serde"
 version = "2.1.0"
 source = "git+https://github.com/Rimeeeeee/alloy?branch=eip-8289#a3dc77234dbd6a09c2b861ecb407505d9f717728"
-dependencies = [
- "alloy-primitives",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "alloy-serde"
-version = "2.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1e97b3e0b9f816b25083045dcfa69431bd059a078e828e4d82d296d1949b96c"
 dependencies = [
  "alloy-primitives",
  "serde",
@@ -2026,7 +1992,7 @@ name = "example-block-traces"
 version = "0.0.0"
 dependencies = [
  "alloy-consensus",
- "alloy-eips 2.1.1",
+ "alloy-eips",
  "alloy-provider",
  "anyhow",
  "indicatif",
@@ -2096,7 +2062,7 @@ dependencies = [
 name = "example-uniswap-get-reserves"
 version = "0.0.0"
 dependencies = [
- "alloy-eips 2.1.1",
+ "alloy-eips",
  "alloy-provider",
  "alloy-sol-types",
  "anyhow",
@@ -2108,7 +2074,7 @@ dependencies = [
 name = "example-uniswap-v2-usdc-swap"
 version = "0.0.0"
 dependencies = [
- "alloy-eips 2.1.1",
+ "alloy-eips",
  "alloy-provider",
  "alloy-sol-types",
  "anyhow",
@@ -3953,7 +3919,7 @@ dependencies = [
 name = "revm-database"
 version = "41.0.0"
 dependencies = [
- "alloy-eips 2.1.1",
+ "alloy-eips",
  "alloy-provider",
  "alloy-transport",
  "derive_more",
