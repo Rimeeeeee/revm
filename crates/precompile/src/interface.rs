@@ -115,7 +115,7 @@ pub struct PrecompileOutput {
     /// Gas refunded by the precompile.
     pub gas_refunded: i64,
     /// State gas used by the precompile.
-    pub state_gas_used: u64,
+    pub state_gas_used: i64,
     /// Reservoir gas for EIP-8037.
     pub reservoir: u64,
     /// Output bytes.
@@ -212,7 +212,8 @@ pub trait Crypto: Send + Sync + Debug {
         hasher.update(input);
 
         let mut output = [0u8; 32];
-        hasher.finalize_into((&mut output[12..]).into());
+        let hash: &mut [u8; 20] = (&mut output[12..]).try_into().unwrap();
+        hasher.finalize_into(hash.into());
         output
     }
 
