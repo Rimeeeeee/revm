@@ -122,8 +122,8 @@ dependencies = [
 
 [[package]]
 name = "alloy-eip7928"
-version = "0.4.3"
-source = "git+https://github.com/Rimeeeeee/eips?branch=eip-8268#34b2b63c43e71831560d69eee65a0bc58b092db9"
+version = "0.4.5"
+source = "git+https://github.com/Rimeeeeee/eips?branch=eip-8268#dc259314766cbcf680856761f6efdbef5ee85a37"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
