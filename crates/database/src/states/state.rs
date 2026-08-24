@@ -364,6 +364,23 @@ impl<DB: Database> Database for State<DB> {
             .map_err(EvmDatabaseError::Database)
     }
 
+    fn has_storage(&mut self, address: Address) -> Result<bool, Self::Error> {
+        if let Some(account) = self.cache.accounts.get(&address) {
+            if let Some(plain_account) = &account.account {
+                if plain_account.storage.values().any(|value| *value != StorageValue::ZERO) {
+                    return Ok(true);
+                }
+                if account.status.is_storage_known() {
+                    return Ok(false);
+                }
+            }
+        }
+
+        self.database
+            .has_storage(address)
+            .map_err(EvmDatabaseError::Database)
+    }
+
     fn storage_by_account_id(
         &mut self,
         address: Address,
@@ -545,6 +562,23 @@ impl<DB: DatabaseRef> DatabaseRef for State<DB> {
         // If not found, load it from database
         self.database
             .storage_ref(address, index)
+            .map_err(EvmDatabaseError::Database)
+    }
+
+    fn has_storage_ref(&self, address: Address) -> Result<bool, Self::Error> {
+        if let Some(account) = self.cache.accounts.get(&address) {
+            if let Some(plain_account) = &account.account {
+                if plain_account.storage.values().any(|value| *value != StorageValue::ZERO) {
+                    return Ok(true);
+                }
+                if account.status.is_storage_known() {
+                    return Ok(false);
+                }
+            }
+        }
+
+        self.database
+            .has_storage_ref(address)
             .map_err(EvmDatabaseError::Database)
     }
 

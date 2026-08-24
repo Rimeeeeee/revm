@@ -21,7 +21,7 @@ use interpreter::{
 };
 use primitives::{
     constants::CALL_STACK_LIMIT,
-    hardfork::SpecId::{self, HOMESTEAD, LONDON, SPURIOUS_DRAGON},
+    hardfork::SpecId::{self, AMSTERDAM, HOMESTEAD, LONDON, SPURIOUS_DRAGON},
     Address, Bytes, U256,
 };
 use state::Bytecode;
@@ -318,6 +318,11 @@ impl EthFrame<EthInterpreter> {
 
         // warm load account.
         journal.load_account(created_address)?;
+
+        // EIP-7610: storage-only accounts are creation collisions.
+        if spec.is_enabled_in(AMSTERDAM) && context.db_mut().has_storage(created_address)? {
+            return return_error(InstructionResult::CreateCollision);
+        }
 
         // Create account, transfer funds and make the journal checkpoint.
         let checkpoint = match context.journal_mut().create_account_checkpoint(

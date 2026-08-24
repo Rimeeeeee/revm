@@ -76,6 +76,12 @@ pub trait Database {
     fn storage(&mut self, address: Address, index: StorageKey)
         -> Result<StorageValue, Self::Error>;
 
+    /// Returns whether the account has any non-zero storage slots.
+    #[inline]
+    fn has_storage(&mut self, _address: Address) -> Result<bool, Self::Error> {
+        Ok(false)
+    }
+
     /// Gets storage value of account by its id. By default call [`Database::storage`] method.
     ///
     /// If basic account sets account_id inside [`AccountInfo::account_id`], evm will call this
@@ -158,6 +164,12 @@ pub trait DatabaseRef {
     /// Gets storage value of address at index.
     fn storage_ref(&self, address: Address, index: StorageKey)
         -> Result<StorageValue, Self::Error>;
+
+    /// Returns whether the account has any non-zero storage slots.
+    #[inline]
+    fn has_storage_ref(&self, _address: Address) -> Result<bool, Self::Error> {
+        Ok(false)
+    }
 
     /// Gets storage value of account by its id.
     ///

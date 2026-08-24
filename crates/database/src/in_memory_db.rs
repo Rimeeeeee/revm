@@ -388,6 +388,24 @@ impl<ExtDB: DatabaseRef> Database for CacheDB<ExtDB> {
         }
     }
 
+    fn has_storage(&mut self, address: Address) -> Result<bool, Self::Error> {
+        match self.cache.accounts.get(&address) {
+            Some(account) => {
+                if account.storage.values().any(|value| *value != StorageValue::ZERO) {
+                    Ok(true)
+                } else if matches!(
+                    account.account_state,
+                    AccountState::StorageCleared | AccountState::NotExisting
+                ) {
+                    Ok(false)
+                } else {
+                    self.db.has_storage_ref(address)
+                }
+            }
+            None => self.db.has_storage_ref(address),
+        }
+    }
+
     fn block_hash(&mut self, number: u64) -> Result<B256, Self::Error> {
         match self.cache.block_hashes.entry(U256::from(number)) {
             Entry::Occupied(entry) => Ok(*entry.get()),
@@ -437,6 +455,24 @@ impl<ExtDB: DatabaseRef> DatabaseRef for CacheDB<ExtDB> {
                 }
             },
             None => self.db.storage_ref(address, index),
+        }
+    }
+
+    fn has_storage_ref(&self, address: Address) -> Result<bool, Self::Error> {
+        match self.cache.accounts.get(&address) {
+            Some(account) => {
+                if account.storage.values().any(|value| *value != StorageValue::ZERO) {
+                    Ok(true)
+                } else if matches!(
+                    account.account_state,
+                    AccountState::StorageCleared | AccountState::NotExisting
+                ) {
+                    Ok(false)
+                } else {
+                    self.db.has_storage_ref(address)
+                }
+            }
+            None => self.db.has_storage_ref(address),
         }
     }
 
