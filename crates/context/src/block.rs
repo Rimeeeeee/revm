@@ -1,5 +1,5 @@
 //! This module contains [`BlockEnv`] and it implements [`Block`] trait.
-use context_interface::block::{BlobExcessGasAndPrice, Block};
+use context_interface::block::{BlobExcessGasAndPrice, Block, WarmAccessList};
 use primitives::{eip4844::BLOB_BASE_FEE_UPDATE_FRACTION_PRAGUE, Address, B256, U256};
 
 /// The block environment
@@ -46,6 +46,8 @@ pub struct BlockEnv {
     ///
     /// [EIP-7843]: https://eips.ethereum.org/EIPS/eip-7843
     pub slot_num: u64,
+    /// Block-level warm accesses used for EIP-8289 warm gas accounting.
+    pub warm_accesses: Option<WarmAccessList>,
 }
 
 impl BlockEnv {
@@ -108,6 +110,11 @@ impl Block for BlockEnv {
     fn slot_num(&self) -> u64 {
         self.slot_num
     }
+
+    #[inline]
+    fn warm_access_list(&self) -> Option<&WarmAccessList> {
+        self.warm_accesses.as_ref()
+    }
 }
 
 impl Default for BlockEnv {
@@ -125,6 +132,29 @@ impl Default for BlockEnv {
                 BLOB_BASE_FEE_UPDATE_FRACTION_PRAGUE,
             )),
             slot_num: 0,
+            warm_accesses: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_block_env_has_no_warm_access_list() {
+        assert!(BlockEnv::default().warm_access_list().is_none());
+    }
+
+    #[test]
+    fn block_env_returns_configured_warm_access_list() {
+        let address = Address::with_last_byte(1);
+        let block_env = BlockEnv {
+            warm_accesses: Some(vec![(address, vec![U256::from(1)])]),
+            ..Default::default()
+        };
+
+        let warm_accesses = block_env.warm_access_list().unwrap();
+        assert_eq!(warm_accesses.as_slice(), &[(address, vec![U256::from(1)])]);
     }
 }
