@@ -6,6 +6,8 @@
 //! ## Key Types
 //!
 //! - [`BlockAccessIndex`]: block access index
+//! - [`BalAccountInfo`]: account fields a BAL changed, each `None` when not written
+//! - [`BalAccountLookup`]: complete, partial, or uncovered account information at a read position
 //! - **`Bal`**: Main BAL structure containing a map of accounts
 //! - **`BalWrites<T>`**: Array of (index, value) pairs representing sequential writes to a state item
 //! - **`AccountBal`**: Complete BAL structure for an account (balance, nonce, code, and storage)
@@ -17,7 +19,7 @@ pub mod alloy;
 pub mod writes;
 
 pub use account::{AccountBal, AccountInfoBal, StorageBal};
-pub use alloy_eip7928::BlockAccessIndex;
+pub use alloy_eip7928::{BalAccountInfo, BlockAccessIndex};
 pub use writes::BalWrites;
 
 use crate::{Account, AccountId, AccountInfo};
@@ -237,6 +239,26 @@ impl Bal {
     }
 }
 
+/// Account information available from a BAL at a read position.
+///
+/// Returned by [`AccountInfoBal::account_info_lookup`] and `BalState::get_bal_account_info`
+/// without consulting the backing database.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BalAccountLookup {
+    /// Every account field is known, including decoded bytecode.
+    ///
+    /// This describes field completeness, not account existence. An empty account is returned as
+    /// an [`AccountInfo`]; the caller decides whether state-clearing rules make it absent.
+    Complete(AccountInfo),
+    /// Only some account fields are known. Missing fields must be read from the backing account.
+    ///
+    /// An empty [`BalAccountInfo`] means no account fields are known at this position; it does
+    /// not mean the account itself is empty or absent. Code changes carry their hash only.
+    Partial(BalAccountInfo),
+    /// No BAL is attached, or the account is missing and database fallback is enabled.
+    NotCovered,
+}
+
 /// Error returned when a BAL (Block Access List, [EIP-7928]) lookup
 /// cannot find data the caller expected to be present.
 ///
@@ -327,8 +349,46 @@ mod tests {
         (bytecode.hash_slow(), bytecode)
     }
 
+    #[test]
+    #[cfg(all(feature = "serde", feature = "account-ext"))]
+    fn extension_history_messagepack_roundtrip() {
+        let mut account = AccountInfoBal::default();
+        let legacy = (&account.nonce, &account.balance, &account.code);
+        let encoded = rmp_serde::to_vec(&account).unwrap();
+        assert_eq!(encoded, rmp_serde::to_vec(&legacy).unwrap());
+        assert_eq!(
+            rmp_serde::from_slice::<AccountInfoBal>(&encoded).unwrap(),
+            account
+        );
+
+        // Clearing an extension is a write, not an empty history.
+        account
+            .extension
+            .force_update(idx(1), crate::AccountExtension::default());
+        let encoded = rmp_serde::to_vec(&account).unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<AccountInfoBal>(&encoded).unwrap(),
+            account
+        );
+    }
+
     const fn idx(index: u64) -> BlockAccessIndex {
         BlockAccessIndex::new(index)
+    }
+
+    #[test]
+    #[cfg(feature = "account-ext")]
+    fn account_extension_roundtrips_through_bal() {
+        let original = AccountInfo::default();
+        let present = original
+            .clone()
+            .with_extension(Bytes::from_static(b"extension"));
+        let mut bal = AccountInfoBal::default();
+        bal.update(idx(1), &original, &present);
+
+        let mut replayed = original;
+        assert!(bal.populate_account_info(idx(2), &mut replayed));
+        assert_eq!(replayed.extension, present.extension);
     }
 
     #[test]
@@ -347,6 +407,8 @@ mod tests {
                 code: BalWrites {
                     writes: vec![(idx(7), code(7)), (idx(3), code(3))],
                 },
+                #[cfg(feature = "account-ext")]
+                extension: BalWrites::default(),
             },
             storage: StorageBal {
                 storage: BTreeMap::from([
@@ -494,5 +556,110 @@ mod tests {
         }];
 
         assert!(Bal::clone_from_alloy(&alloy_bal).is_err());
+    }
+
+    #[test]
+    fn account_info_lookup_uses_exclusive_index_and_includes_post_execution() {
+        let (code_hash, bytecode) = code(1);
+        #[cfg(feature = "account-ext")]
+        let extension = crate::AccountExtension::copy_from_slice(b"extension");
+        let account = AccountInfoBal {
+            nonce: BalWrites::new(vec![(idx(2), 5)]),
+            balance: BalWrites::new(vec![
+                (idx(0), U256::from(1)),
+                (idx(1), U256::from(7)),
+                // Post-execution for a two-transaction block.
+                (idx(3), U256::from(42)),
+            ]),
+            code: BalWrites::new(vec![(idx(3), (code_hash, bytecode.clone()))]),
+            #[cfg(feature = "account-ext")]
+            extension: BalWrites::new(vec![(idx(3), extension.clone())]),
+        };
+
+        for (index, balance, nonce) in [
+            (0, None, None),
+            (1, Some(U256::from(1)), None),
+            (2, Some(U256::from(7)), None),
+            (3, Some(U256::from(7)), Some(5)),
+        ] {
+            assert_eq!(
+                account.account_info_lookup(idx(index)),
+                BalAccountLookup::Partial(BalAccountInfo {
+                    balance,
+                    nonce,
+                    code_hash: None
+                })
+            );
+        }
+
+        let BalAccountLookup::Complete(info) = account.account_info_lookup(idx(4)) else {
+            panic!("all fields must be known after post-execution");
+        };
+        assert_eq!(info.balance, U256::from(42));
+        assert_eq!(info.nonce, 5);
+        assert_eq!(info.code_hash, code_hash);
+        assert_eq!(info.code, Some(bytecode));
+        #[cfg(feature = "account-ext")]
+        assert_eq!(info.extension, extension);
+    }
+
+    #[test]
+    fn account_info_lookup_distinguishes_missing_fields_from_empty_values() {
+        let index = idx(1);
+        let bytecode = Bytecode::default();
+        for fields in 0..8 {
+            let mut account = AccountInfoBal::default();
+            let mut expected = BalAccountInfo::default();
+            if fields & 1 != 0 {
+                account.balance = BalWrites::new(vec![(index, U256::ZERO)]);
+                expected.balance = Some(U256::ZERO);
+            }
+            if fields & 2 != 0 {
+                account.nonce = BalWrites::new(vec![(index, 0)]);
+                expected.nonce = Some(0);
+            }
+            if fields & 4 != 0 {
+                account.code =
+                    BalWrites::new(vec![(index, (bytecode.hash_slow(), bytecode.clone()))]);
+                expected.code_hash = Some(bytecode.hash_slow());
+            }
+            #[cfg(feature = "account-ext")]
+            {
+                account.extension = BalWrites::new(vec![(index, crate::AccountExtension::new())]);
+            }
+
+            let lookup = account.account_info_lookup(idx(2));
+            if expected.is_complete() {
+                let BalAccountLookup::Complete(info) = lookup else {
+                    panic!("all recorded fields must produce a complete account");
+                };
+                assert!(info.is_empty());
+                assert_eq!(info.code, Some(bytecode.clone()));
+            } else {
+                assert_eq!(lookup, BalAccountLookup::Partial(expected));
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "account-ext")]
+    fn account_info_lookup_requires_extension_write() {
+        let (code_hash, bytecode) = code(1);
+        let account = AccountInfoBal {
+            nonce: BalWrites::new(vec![(idx(1), 1)]),
+            balance: BalWrites::new(vec![(idx(1), U256::from(1))]),
+            code: BalWrites::new(vec![(idx(1), (code_hash, bytecode))]),
+            extension: BalWrites::default(),
+        };
+
+        // The backing account may carry an extension the BAL never wrote.
+        assert_eq!(
+            account.account_info_lookup(idx(2)),
+            BalAccountLookup::Partial(BalAccountInfo {
+                balance: Some(U256::from(1)),
+                nonce: Some(1),
+                code_hash: Some(code_hash),
+            })
+        );
     }
 }

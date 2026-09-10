@@ -1,5 +1,67 @@
 Because this is workspace with multi libraries, tags will be simplified, and with this document you can match version of project with git tag.
 
+# v120
+date: 24.09.2026
+
+Patch release adding opt-in account extension data and updating dependencies.
+
+Highlights:
+* Add the `account-ext` feature for shared chain-specific account payloads, with journal rollback and Block Access List (BAL) history ([#3894](https://github.com/bluealloy/revm/pull/3894))
+* Update BAL code-change handling to use the `alloy-eip7928` accessors ([#3916](https://github.com/bluealloy/revm/pull/3916))
+* Update the locked `rustls` dependency to address RUSTSEC-2026-0285 ([#3917](https://github.com/bluealloy/revm/pull/3917))
+
+The `account-ext` feature is disabled by default. See [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md) for the API and serialization considerations when enabling it.
+
+* `revm-state`: 43.0.0 -> 43.0.1 (opt-in account extensions and dependency update)
+* `revm-database-interface`: 43.0.0 -> 43.0.1 (dependency bump)
+* `revm-context-interface`: 43.0.1 -> 43.0.2 (opt-in account extension journal entries)
+* `revm-context`: 43.0.2 -> 43.0.3 (opt-in account extension journaling)
+* `revm-database`: 43.0.0 -> 43.0.1 (dependency bump)
+* `revm-interpreter`: 43.0.1 -> 43.0.2 (dependency bump)
+* `revm-precompile`: 43.0.2 -> 43.0.3 (dependency bump)
+* `revm-handler`: 43.0.2 -> 43.0.3 (dependency bump)
+* `revm-inspector`: 43.0.2 -> 43.0.3 (dependency bump)
+* `revm-statetest-types`: 43.0.1 -> 43.0.2 (dependency bump)
+* `revm`: 43.0.2 -> 43.0.3 (opt-in `account-ext` feature and dependency bumps)
+* `revme`: 43.0.2 -> 43.0.3 (dependency bumps)
+
+`revm-primitives` and `revm-bytecode` remain at 43.0.0. `revm-ee-tests` remains at 43.0.0 and is excluded from release-plz releases.
+
+# v119
+date: 09.09.2026
+
+Patch release reverting the EIP-8037 system-call gas-reservoir change from v118.
+
+Highlights:
+* Restore the pre-v118 system-call gas-tracking behavior ([#3903](https://github.com/bluealloy/revm/pull/3903))
+
+See [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md) for the reverted handler API and gas-accounting behavior.
+
+* `revm-handler`: 43.0.1 -> 43.0.2 (⚠ API breaking changes)
+* `revm-inspector`: 43.0.1 -> 43.0.2 (✓ API compatible changes)
+* `revm`: 43.0.1 -> 43.0.2 (✓ dependency bump)
+* `revme`: 43.0.1 -> 43.0.2 (✓ dependency bump)
+
+# v118
+date: 08.09.2026
+
+Small patch release fixing EIP-8037 state-gas accounting and aligning the `revme` gas-limit default with EIP-7825.
+
+Highlights:
+* Reconcile state-gas refills across sibling frames ([#3893](https://github.com/bluealloy/revm/pull/3893))
+* Place the EIP-8037 system-call state-gas margin in the reservoir ([#3892](https://github.com/bluealloy/revm/pull/3892))
+* Lower the `revme evmrunner` default gas limit to `2^24` ([#3886](https://github.com/bluealloy/revm/pull/3886))
+
+* `revm-context-interface`: 43.0.0 -> 43.0.1 (✓ API compatible changes)
+* `revm-handler`: 43.0.0 -> 43.0.1 (✓ API compatible changes)
+* `revm-inspector`: 43.0.0 -> 43.0.1 (✓ API compatible changes)
+* `revme`: 43.0.0 -> 43.0.1 (✓ API compatible changes)
+* `revm-context`: 43.0.1 -> 43.0.2 (✓ dependency bump)
+* `revm-interpreter`: 43.0.0 -> 43.0.1 (✓ dependency bump)
+* `revm-precompile`: 43.0.1 -> 43.0.2 (✓ dependency bump)
+* `revm-statetest-types`: 43.0.0 -> 43.0.1 (✓ dependency bump)
+* `revm`: 43.0.0 -> 43.0.1 (✓ dependency bump)
+
 # v117
 date: 28.08.2026
 

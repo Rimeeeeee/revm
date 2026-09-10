@@ -161,12 +161,12 @@ download_fixtures() {
 # For the target:
 #   - If provided, add "--target <target>"
 build_cargo_options() {
-    CARGO_OPTS=""
+    CARGO_OPTS="--locked"
 
     if [ "$RUST_PROFILE" = "release" ]; then
-        CARGO_OPTS="--release"
+        CARGO_OPTS="$CARGO_OPTS --release"
     elif [ "$RUST_PROFILE" != "debug" ]; then
-        CARGO_OPTS="--profile $RUST_PROFILE"
+        CARGO_OPTS="$CARGO_OPTS --profile $RUST_PROFILE"
     fi
 
     if [ -n "$RUST_TARGET" ]; then
@@ -191,8 +191,8 @@ run_tests() {
     echo "Running $MAIN_LABEL blockchain tests..."
     $RUST_RUNNER run $CARGO_OPTS -p revme -- btest $KEEP_GOING_FLAG "$MAIN_DIR/blockchain_tests"
 
-    echo "SKIP Running devnet blockchain tests..."
-    #$RUST_RUNNER run $CARGO_OPTS -p revme -- btest $KEEP_GOING_FLAG "$DEVNET_DIR/blockchain_tests"
+    echo "Running devnet blockchain tests..."
+    $RUST_RUNNER run $CARGO_OPTS -p revme -- btest $KEEP_GOING_FLAG "$DEVNET_DIR/blockchain_tests"
 }
 
 ##############################

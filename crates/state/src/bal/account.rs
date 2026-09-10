@@ -1,7 +1,9 @@
 //! BAL builder module
 
+#[cfg(feature = "account-ext")]
+use crate::AccountExtension;
 use crate::{
-    bal::{writes::BalWrites, BalError, BlockAccessIndex},
+    bal::{writes::BalWrites, BalAccountInfo, BalAccountLookup, BalError, BlockAccessIndex},
     Account, AccountInfo, EvmStorage,
 };
 use alloy_eip7928::{
@@ -89,6 +91,8 @@ impl AccountBal {
                     nonce: BalWrites::from(alloy_account.nonce_changes),
                     balance: BalWrites::from(alloy_account.balance_changes),
                     code: BalWrites::try_from(alloy_account.code_changes)?,
+                    #[cfg(feature = "account-ext")]
+                    extension: BalWrites::default(),
                 },
                 storage: StorageBal::from_iter(
                     alloy_account
@@ -125,6 +129,8 @@ impl AccountBal {
                     nonce: BalWrites::from(alloy_account.nonce_changes.as_slice()),
                     balance: BalWrites::from(alloy_account.balance_changes.as_slice()),
                     code: BalWrites::try_from(alloy_account.code_changes.as_slice())?,
+                    #[cfg(feature = "account-ext")]
+                    extension: BalWrites::default(),
                 },
                 storage: StorageBal::from_iter(
                     alloy_account
@@ -220,6 +226,13 @@ pub struct AccountInfoBal {
     pub balance: BalWrites<U256>,
     /// Code builder.
     pub code: BalWrites<(B256, Bytecode)>,
+    /// Chain-specific account extension builder.
+    #[cfg(feature = "account-ext")]
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "BalWrites::is_empty")
+    )]
+    pub extension: BalWrites<AccountExtension>,
 }
 
 impl AccountInfoBal {
@@ -243,7 +256,40 @@ impl AccountInfoBal {
             account.code = Some(code.1);
             changed = true;
         }
+        #[cfg(feature = "account-ext")]
+        if let Some(extension) = self.extension.get(bal_index) {
+            account.extension = extension;
+            changed = true;
+        }
         changed
+    }
+
+    /// Looks up account fields written strictly before `bal_index`.
+    ///
+    /// Returns [`BalAccountLookup::Complete`] when balance, nonce, and code are all written, and
+    /// [`BalAccountLookup::Partial`] with the written fields otherwise. With the `account-ext`
+    /// feature, a complete account also requires an extension write, since [`BalAccountInfo`]
+    /// cannot carry the extension.
+    pub fn account_info_lookup(&self, bal_index: BlockAccessIndex) -> BalAccountLookup {
+        let code = self.code.get(bal_index);
+        let info = BalAccountInfo {
+            balance: self.balance.get(bal_index),
+            nonce: self.nonce.get(bal_index),
+            code_hash: code.as_ref().map(|(hash, _)| *hash),
+        };
+        let (Some(balance), Some(nonce), Some((code_hash, code))) =
+            (info.balance, info.nonce, code)
+        else {
+            return BalAccountLookup::Partial(info);
+        };
+        #[cfg(feature = "account-ext")]
+        let Some(extension) = self.extension.get(bal_index) else {
+            return BalAccountLookup::Partial(info);
+        };
+        let account = AccountInfo::new(balance, nonce, code_hash, code);
+        #[cfg(feature = "account-ext")]
+        let account = account.with_extension(extension);
+        BalAccountLookup::Complete(account)
     }
 
     /// Extend account info from another account info.
@@ -265,6 +311,9 @@ impl AccountInfoBal {
                 |i| &i.0,
             );
         }
+        #[cfg(feature = "account-ext")]
+        self.extension
+            .update(index, &original.extension, present.extension.clone());
     }
 
     /// Extend account info from another account info.
@@ -273,6 +322,8 @@ impl AccountInfoBal {
         self.nonce.extend(bal_account.nonce);
         self.balance.extend(bal_account.balance);
         self.code.extend(bal_account.code);
+        #[cfg(feature = "account-ext")]
+        self.extension.extend(bal_account.extension);
     }
 
     /// Update account balance in BAL.

@@ -148,6 +148,9 @@ pub trait Host {
     /// Returns whether state gas (EIP-8037) is enabled.
     fn is_amsterdam_eip8037_enabled(&self) -> bool;
 
+    /// Returns whether EIP-8024 stack instructions are enabled.
+    fn is_amsterdam_eip8024_enabled(&self) -> bool;
+
     /* Database */
 
     /// Block hash, calls `ContextTr::journal_mut().db().block_hash(number)`
@@ -323,6 +326,10 @@ impl Host for DummyHost {
         self.spec.is_enabled_in(SpecId::AMSTERDAM)
     }
 
+    fn is_amsterdam_eip8024_enabled(&self) -> bool {
+        self.spec.is_enabled_in(SpecId::AMSTERDAM)
+    }
+
     fn difficulty(&self) -> U256 {
         U256::ZERO
     }
@@ -468,6 +475,9 @@ mod tests {
         }
         fn is_amsterdam_eip8037_enabled(&self) -> bool {
             self.dummy.is_amsterdam_eip8037_enabled()
+        }
+        fn is_amsterdam_eip8024_enabled(&self) -> bool {
+            self.dummy.is_amsterdam_eip8024_enabled()
         }
         fn difficulty(&self) -> U256 {
             self.dummy.difficulty()
