@@ -144,6 +144,9 @@ pub struct CfgEnv<SPEC = SpecId> {
     /// Enabled by default for Amsterdam and later. Can be enabled independently
     /// on earlier forks without changing their other rules or gas parameters.
     pub enable_amsterdam_eip8024: bool,
+    /// Allows empty protocol signatures during RPC simulation. Never enable for consensus.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub allow_frame_signature_placeholders: bool,
     /// Enables EIP-2780 (Amsterdam) reduced intrinsic transaction gas.
     ///
     /// Replaces the legacy 21,000 base with the decomposed
@@ -287,6 +290,7 @@ impl<SPEC> CfgEnv<SPEC> {
             disable_priority_fee_check: self.disable_priority_fee_check,
             #[cfg(feature = "optional_fee_charge")]
             disable_fee_charge: self.disable_fee_charge,
+            allow_frame_signature_placeholders: self.allow_frame_signature_placeholders,
             enable_amsterdam_eip8037: self.enable_amsterdam_eip8037,
             enable_amsterdam_eip2780: self.enable_amsterdam_eip2780,
             enable_amsterdam_eip8024: self.enable_amsterdam_eip8024,
@@ -385,6 +389,7 @@ impl<SPEC: Into<SpecId> + Clone> CfgEnv<SPEC> {
             disable_priority_fee_check: false,
             #[cfg(feature = "optional_fee_charge")]
             disable_fee_charge: false,
+            allow_frame_signature_placeholders: false,
             enable_amsterdam_eip8037: is_amsterdam,
             enable_amsterdam_eip2780: is_amsterdam,
             enable_amsterdam_eip8024: is_amsterdam,
@@ -573,6 +578,10 @@ impl<SPEC: Into<SpecId> + Clone> Cfg for CfgEnv<SPEC> {
                 false
             }
         }
+    }
+
+    fn allow_frame_signature_placeholders(&self) -> bool {
+        self.allow_frame_signature_placeholders
     }
 
     fn is_fee_charge_disabled(&self) -> bool {
