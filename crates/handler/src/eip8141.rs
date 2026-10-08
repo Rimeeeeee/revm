@@ -861,6 +861,9 @@ fn validate_structure<H: Handler + ?Sized>(evm: &mut H::Evm) -> Result<(), H::Er
     }
     let mut expiry_frames = 0usize;
     for (index, frame) in frame_tx.frames.iter().enumerate() {
+        if frame.mode.is_post_tx() {
+            return Err(invalid("POST_TX frames require EIP-7906"));
+        }
         if frame.mode != FrameMode::Sender && !frame.value.is_zero() {
             return Err(invalid("only EIP-8141 SENDER frames may transfer value"));
         }
@@ -2470,5 +2473,30 @@ mod tests {
         assert_eq!(frame_receipts[2].status, FrameStatus::Failure);
         assert_eq!(frame_receipts[3].status, FrameStatus::Failure);
         assert_eq!(frame_receipts[3].gas_used.execution, cold_access - 1);
+    }
+
+    #[test]
+    fn rejects_post_tx_frames_without_eip7906() {
+        let payload = FrameTransaction {
+            frames: vec![Frame {
+                mode: FrameMode::PostTx,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut evm = Context::mainnet()
+            .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA))
+            .with_db(CacheDB::<EmptyDB>::default())
+            .build_mainnet();
+        evm.ctx.set_tx(tx_env(SENDER, payload));
+        let mut handler: crate::MainnetHandler<_, EVMError<core::convert::Infallible>, _> =
+            crate::MainnetHandler::default();
+        assert!(matches!(
+            validate_prefix(&mut handler, &mut evm, 1),
+            Err(EVMError::Transaction(InvalidTransaction::Str(message)))
+                if message == "POST_TX frames require EIP-7906"
+        ));
+        assert!(evm.ctx_ref().local().frame_transaction().is_none());
+        assert_eq!(evm.frame_stack().index(), None);
     }
 }
