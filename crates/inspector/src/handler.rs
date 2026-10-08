@@ -1,6 +1,6 @@
 use crate::{Inspector, InspectorEvmTr, JournalExt};
 use context::journaled_state::JournalCheckpoint;
-use context::{result::ExecutionResult, ContextTr, JournalEntry, JournalTr};
+use context::{result::ExecutionResult, ContextTr, JournalEntry, JournalTr, Transaction};
 use handler::{
     eip8141::{self, DefaultFrameStage, FrameValidationResult},
     evm::FrameTr,
@@ -90,6 +90,26 @@ where
         &mut self,
         evm: &mut Self::Evm,
     ) -> Result<ExecutionResult<Self::HaltReason>, Self::Error> {
+        if evm.ctx_ref().tx().tx_type() == context::TransactionType::Eip8141 {
+            return eip8141::run_with_callbacks(
+                self,
+                evm,
+                |handler, evm, frame| handler.inspect_run_exec_loop(evm, frame),
+                |_, evm, stage, frame_input, result| {
+                    let (context, inspector) = evm.ctx_inspector();
+                    match stage {
+                        DefaultFrameStage::Start => {
+                            *result = frame_start(context, inspector, frame_input);
+                        }
+                        DefaultFrameStage::End => {
+                            if let Some(result) = result {
+                                frame_end(context, inspector, frame_input, result);
+                            }
+                        }
+                    }
+                },
+            );
+        }
         let init_and_floor_gas = self.validate(evm)?;
         // Create the transaction-level gas tracker from the validated
         // intrinsic gas (mirrors `Handler::run_without_catch_error`).

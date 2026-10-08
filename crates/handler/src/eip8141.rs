@@ -46,6 +46,22 @@ pub fn run<H: Handler + ?Sized>(
     handler: &mut H,
     evm: &mut H::Evm,
 ) -> Result<ExecutionResult<H::HaltReason>, H::Error> {
+    run_with_callbacks(handler, evm, run_frame::<H>, no_default_frame::<H>)
+}
+
+/// Executes a frame transaction with bytecode and default-code inspection hooks.
+pub fn run_with_callbacks<H, RUN, DEFAULT>(
+    handler: &mut H,
+    evm: &mut H::Evm,
+    mut run_frame: RUN,
+    mut default_frame: DEFAULT,
+) -> Result<ExecutionResult<H::HaltReason>, H::Error>
+where
+    H: Handler + ?Sized,
+    RUN: FnMut(&mut H, &mut H::Evm, FrameInit) -> Result<FrameResult, H::Error>,
+    DEFAULT:
+        FnMut(&mut H, &mut H::Evm, DefaultFrameStage, &mut FrameInput, &mut Option<FrameResult>),
+{
     let (intrinsic, floor_gas, frame_count) = prepare(handler, evm)?;
     let ExecutedFrames {
         receipts,
@@ -56,8 +72,8 @@ pub fn run<H: Handler + ?Sized>(
         evm,
         frame_count,
         None,
-        &mut run_frame::<H>,
-        &mut no_default_frame::<H>,
+        &mut run_frame,
+        &mut default_frame,
     )?;
     finish_transaction::<H>(
         evm,
