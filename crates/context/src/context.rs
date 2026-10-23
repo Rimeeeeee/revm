@@ -497,12 +497,19 @@ impl<
             .frame_transaction()
             .map(|frame_tx| {
                 frame_tx
-                    .effective_gas_price(
-                        self.tx().gas_limit(),
-                        basefee as u128,
-                        self.tx().total_blob_gas(),
-                        self.block().blob_gasprice().unwrap_or_default(),
-                    )
+                    .gas_limit_with_params(self.tx().caller(), self.cfg().gas_params())
+                    .and_then(|max_gas| {
+                        frame_tx.effective_gas_price(
+                            max_gas,
+                            if self.cfg().is_base_fee_check_disabled() {
+                                0
+                            } else {
+                                basefee as u128
+                            },
+                            self.tx().total_blob_gas(),
+                            self.block().blob_gasprice().unwrap_or_default(),
+                        )
+                    })
                     .unwrap_or_default()
             })
             .unwrap_or_else(|| U256::from(self.tx().effective_gas_price(basefee as u128)))
@@ -928,7 +935,11 @@ fn charge_frame_payer<CTX: ContextTr>(
             ctx.cfg().gas_params(),
             tx.total_blob_gas(),
             ctx.block().blob_gasprice().unwrap_or_default(),
-            ctx.block().basefee() as u128,
+            if ctx.cfg().is_base_fee_check_disabled() {
+                0
+            } else {
+                ctx.block().basefee() as u128
+            },
         );
     let keys = tx.frame_transaction().and_then(|tx| tx.nonce_keys.clone());
     let sequence = tx.nonce();
@@ -1093,7 +1104,7 @@ mod precharge_tests {
                     // Include the blob precharge and use a payer distinct from the sender.
                     ctx.tx.blob_hashes = vec![B256::ZERO];
                     let payload = FrameTransaction {
-                        max_fee: U256::from(1_000_000),
+                        max_fee: U256::from(1_000_000_000),
                         max_priority_fee_per_gas: U256::from(1),
                         frames: vec![
                             Frame {
@@ -1162,5 +1173,87 @@ mod precharge_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod frame_fee_tests {
+    use super::*;
+    use alloy_eip8141::{Frame, FrameLimits};
+    use context_interface::transaction::FrameTransaction;
+    use database::{CacheDB, EmptyDB};
+    use primitives::address;
+
+    #[cfg(feature = "optional_no_base_fee")]
+    use state::AccountInfo;
+
+    #[test]
+    fn gasprice_uses_derived_frame_gas_instead_of_the_envelope_field() {
+        let sender = address!("1000000000000000000000000000000000000001");
+        let mut ctx = Context::<BlockEnv, TxEnv, CfgEnv, CacheDB<EmptyDB>>::new(
+            CacheDB::default(),
+            SpecId::BOGOTA,
+        );
+        ctx.block.basefee = 7;
+        ctx.tx.caller = sender;
+        ctx.tx.frame_transaction = Some(
+            FrameTransaction {
+                frames: vec![Frame {
+                    limits: FrameLimits {
+                        execution: 10_000,
+                        state: 30_000,
+                    },
+                    ..Default::default()
+                }],
+                max_fee: U256::MAX,
+                max_priority_fee_per_gas: U256::from(5),
+                ..Default::default()
+            }
+            .into(),
+        );
+        for gas_limit in [0, 1, 100_000, u64::MAX] {
+            ctx.tx.gas_limit = gas_limit;
+            assert_eq!(ctx.effective_gas_price(), U256::from(12));
+        }
+    }
+
+    #[cfg(feature = "optional_no_base_fee")]
+    #[test]
+    fn disabled_base_fee_permits_zero_budget_without_changing_block_basefee() {
+        let sender = address!("1000000000000000000000000000000000000001");
+        let mut db = CacheDB::<EmptyDB>::default();
+        db.insert_account_info(
+            sender,
+            AccountInfo::default().with_balance(U256::from(1000)),
+        );
+        let mut ctx = Context::<BlockEnv, TxEnv, CfgEnv, CacheDB<EmptyDB>>::new(db, SpecId::BOGOTA);
+        ctx.block.basefee = 7;
+        ctx.cfg.disable_base_fee = true;
+        ctx.tx.caller = sender;
+        let payload = FrameTransaction {
+            frames: vec![Frame {
+                limits: FrameLimits {
+                    execution: 10_000,
+                    state: 30_000,
+                },
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(payload
+            .fee_budget(payload.gas_limit(sender).unwrap(), 7, 0, 0)
+            .is_none());
+        ctx.tx.frame_transaction = Some(payload.into());
+        assert_eq!(ctx.effective_gas_price(), U256::ZERO);
+        assert_eq!(
+            charge_frame_payer(&mut ctx, sender, sender, u64::MAX).unwrap(),
+            (0, U256::ZERO)
+        );
+        assert_eq!(ctx.block.basefee, 7);
+        assert_eq!(
+            ctx.journaled_state.state[&sender].info.balance,
+            U256::from(1000)
+        );
+        assert_eq!(ctx.journaled_state.state[&sender].info.nonce, 1);
     }
 }

@@ -313,6 +313,25 @@ impl FrameTransaction {
         self.checked_max_cost_with_params(sender, gas_params, blob_gas, blob_base_fee, base_fee)
             .expect("EIP-8141 maximum cost must be validated before execution")
     }
+
+    /// Calculates the actual fee and beneficiary tip for a validated transaction.
+    pub fn actual_fee(
+        &self,
+        gas_used: u64,
+        base_fee: u128,
+        blob_gas: u64,
+        blob_base_fee: u128,
+    ) -> (U256, U256) {
+        let required = U256::from(gas_used)
+            .checked_mul(U256::from(base_fee))
+            .and_then(|cost| cost.checked_add(U256::from(blob_gas) * U256::from(blob_base_fee)))
+            .expect("actual base fees are bounded by validated reservations");
+        let priority = self
+            .max_priority_fee_per_gas
+            .saturating_mul(U256::from(gas_used))
+            .min(self.max_fee.saturating_sub(required));
+        (required + priority, priority)
+    }
 }
 
 #[cfg(test)]
@@ -441,5 +460,32 @@ mod tests {
         };
         let (base, tip) = huge.fee_budget(100, 10, 0, 0).unwrap();
         assert_eq!(base + tip, U256::MAX);
+    }
+
+    #[test]
+    fn actual_fees_use_charged_gas_and_stay_within_the_escrow() {
+        let tx = FrameTransaction {
+            max_fee: U256::from(1200),
+            max_priority_fee_per_gas: U256::from(5),
+            ..Default::default()
+        };
+        assert_eq!(tx.actual_fee(0, 10, 2, 7), (U256::from(14), U256::ZERO));
+        assert_eq!(
+            tx.actual_fee(50, 10, 2, 7),
+            (U256::from(764), U256::from(250))
+        );
+        assert_eq!(
+            tx.actual_fee(100, 10, 2, 7),
+            (U256::from(1200), U256::from(186))
+        );
+        let huge = FrameTransaction {
+            max_fee: U256::MAX,
+            max_priority_fee_per_gas: U256::MAX,
+            ..Default::default()
+        };
+        assert_eq!(
+            huge.actual_fee(100, 10, 0, 0),
+            (U256::MAX, U256::MAX - U256::from(1000))
+        );
     }
 }

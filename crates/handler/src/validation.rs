@@ -213,15 +213,17 @@ pub fn validate_tx_env<CTX: ContextTr>(
             let frame_tx = tx
                 .frame_transaction()
                 .ok_or(InvalidTransaction::Eip8141InvalidFields)?;
-            if base_fee.is_some()
-                && frame_tx
-                    .fee_budget(
-                        tx.gas_limit(),
-                        context.block().basefee() as u128,
-                        tx.total_blob_gas(),
-                        context.block().blob_gasprice().unwrap_or_default(),
-                    )
-                    .is_none()
+            let gas_limit = frame_tx
+                .gas_limit_with_params(tx.caller(), context.cfg().gas_params())
+                .ok_or(InvalidTransaction::OverflowPaymentInTransaction)?;
+            if frame_tx
+                .fee_budget(
+                    gas_limit,
+                    base_fee.unwrap_or_default(),
+                    tx.total_blob_gas(),
+                    context.block().blob_gasprice().unwrap_or_default(),
+                )
+                .is_none()
             {
                 return Err(InvalidTransaction::GasPriceLessThanBasefee);
             }
@@ -260,7 +262,8 @@ pub fn validate_tx_env<CTX: ContextTr>(
     // Check that the transaction's nonce is not at the maximum value.
     // Incrementing the nonce would overflow. Can't happen in the real world.
     if tx.nonce() == u64::MAX
-        && !(context.cfg().is_eip8250_enabled()
+        && !(tx_type == TransactionType::Eip8141
+            && context.cfg().is_eip8250_enabled()
             && tx
                 .frame_transaction()
                 .and_then(|frame| frame.nonce_keys.as_ref())
@@ -356,11 +359,82 @@ mod tests {
     use bytecode::opcode;
     use context::{
         result::{EVMError, ExecutionResult, HaltReason, InvalidTransaction, Output},
+        transaction::FrameTransaction,
         Context, ContextTr, TxEnv,
     };
     use database::{CacheDB, EmptyDB};
-    use primitives::{address, eip3860, eip7954, hardfork::SpecId, Bytes, TxKind, B256};
+    use primitives::{
+        address, eip3860, eip7954, hardfork::SpecId, Address, Bytes, TxKind, B256, U256,
+    };
     use state::{AccountInfo, Bytecode};
+
+    #[test]
+    fn nonce_max_requires_an_active_nonempty_keyed_frame_payload() {
+        for enabled in [false, true] {
+            for keys in [vec![], vec![U256::ZERO], vec![U256::ZERO, U256::ONE]] {
+                for tx_type in [0, 6] {
+                    let mut ctx = Context::mainnet().modify_cfg_chained(|cfg| {
+                        cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA);
+                        cfg.enable_eip8250 = enabled;
+                    });
+                    ctx.tx = TxEnv::builder()
+                        .tx_type(Some(6))
+                        .nonce(u64::MAX)
+                        .gas_limit(100_000)
+                        .gas_priority_fee(Some(0))
+                        .frame_transaction(FrameTransaction {
+                            nonce_keys: Some(keys.clone()),
+                            ..Default::default()
+                        })
+                        .build()
+                        .unwrap();
+                    ctx.tx.tx_type = tx_type;
+                    assert_eq!(
+                        super::validate_tx_env(ctx, SpecId::BOGOTA),
+                        if tx_type == 6 && enabled && !keys.is_empty() {
+                            Ok(())
+                        } else {
+                            Err(InvalidTransaction::NonceOverflowInTransaction)
+                        }
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn frame_fee_admission_uses_derived_limits() {
+        let payload = FrameTransaction {
+            frames: vec![alloy_eip8141::Frame::default()],
+            ..Default::default()
+        };
+        let required = U256::from(payload.gas_limit(Address::ZERO).unwrap()) * U256::from(7);
+        for gas_limit in [0, 1, u64::MAX] {
+            for enough in [false, true] {
+                let mut ctx = Context::mainnet()
+                    .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA));
+                ctx.block.basefee = 7;
+                ctx.tx = TxEnv::builder()
+                    .tx_type(Some(6))
+                    .gas_limit(gas_limit)
+                    .gas_priority_fee(Some(0))
+                    .frame_transaction(FrameTransaction {
+                        max_fee: required - U256::from(u8::from(!enough)),
+                        ..payload.clone()
+                    })
+                    .build()
+                    .unwrap();
+                assert_eq!(
+                    super::validate_tx_env(ctx, SpecId::BOGOTA),
+                    if enough {
+                        Ok(())
+                    } else {
+                        Err(InvalidTransaction::GasPriceLessThanBasefee)
+                    }
+                );
+            }
+        }
+    }
 
     fn deploy_contract(
         bytecode: Bytes,

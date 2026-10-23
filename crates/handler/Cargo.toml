@@ -36,6 +36,7 @@ derive-where.workspace = true
 serde = { workspace = true, optional = true }
 
 [dev-dependencies]
+context = { workspace = true, features = ["optional_no_base_fee", "optional_balance_check"] }
 database.workspace = true
 alloy-signer.workspace = true
 alloy-signer-local.workspace = true

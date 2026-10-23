@@ -195,7 +195,19 @@ where
             let signature_gas = frame_tx
                 .signature_verification_gas()
                 .ok_or_else(|| invalid::<H::Error>("EIP-8141 signature gas overflow"))?;
-            let max_cost = frame_tx.max_fee;
+            let max_cost = frame_tx
+                .checked_max_cost_with_params(
+                    evm.ctx_ref().tx().caller(),
+                    evm.ctx_ref().cfg().gas_params(),
+                    evm.ctx_ref().tx().total_blob_gas(),
+                    evm.ctx_ref().block().blob_gasprice().unwrap_or_default(),
+                    if evm.ctx_ref().cfg().is_base_fee_check_disabled() {
+                        0
+                    } else {
+                        evm.ctx_ref().block().basefee() as u128
+                    },
+                )
+                .ok_or(InvalidTransaction::OverflowPaymentInTransaction)?;
             Ok(FrameValidationResult {
                 payer,
                 max_cost,
@@ -267,9 +279,9 @@ fn prepare<H: Handler + ?Sized>(
     }
     if let Some(keys) = keys {
         alloy_eip8141::validate_nonce_keys(keys).map_err(invalid::<H::Error>)?;
-        if keys.is_empty() && evm.ctx_ref().tx().nonce() == u64::MAX {
-            return Err(InvalidTransaction::NonceOverflowInTransaction.into());
-        }
+    }
+    if evm.ctx_ref().tx().nonce() == u64::MAX && keys.as_ref().is_none_or(|keys| keys.is_empty()) {
+        return Err(InvalidTransaction::NonceOverflowInTransaction.into());
     }
     validate_structure::<H>(evm)?;
     validate_signatures::<H>(evm)?;
@@ -946,7 +958,11 @@ fn validate_structure<H: Handler + ?Sized>(evm: &mut H::Evm) -> Result<(), H::Er
     if frame_tx
         .fee_budget(
             gas_limit,
-            ctx.block().basefee() as u128,
+            if ctx.cfg().is_base_fee_check_disabled() {
+                0
+            } else {
+                ctx.block().basefee() as u128
+            },
             tx.total_blob_gas(),
             ctx.block().blob_gasprice().unwrap_or_default(),
         )
@@ -1287,36 +1303,34 @@ fn settle_fees<H: Handler + ?Sized>(
     if evm.ctx_ref().cfg().is_fee_charge_disabled() {
         return Ok(());
     }
-    let (max_cost, actual_cost, beneficiary, beneficiary_reward) = {
+    let (precharge, actual_cost, beneficiary, beneficiary_reward) = {
         let ctx = evm.ctx_ref();
         let tx = ctx.tx();
         let frame_tx = tx.frame_transaction().unwrap();
         let blob_gas = tx.total_blob_gas();
-        let max_cost = frame_tx.max_cost_with_params(
-            tx.caller(),
-            ctx.cfg().gas_params(),
+        let precharge = ctx
+            .local()
+            .frame_transaction()
+            .unwrap()
+            .approval
+            .gas_pre_charge;
+        let (actual_cost, tip) = frame_tx.actual_fee(
+            gas_used,
+            if ctx.cfg().is_base_fee_check_disabled() {
+                0
+            } else {
+                ctx.block().basefee() as u128
+            },
             blob_gas,
             ctx.block().blob_gasprice().unwrap_or_default(),
-            ctx.block().basefee() as u128,
         );
-        let base_fee_paid = U256::from(gas_used)
-            .saturating_mul(U256::from(ctx.block().basefee()))
-            .saturating_add(
-                U256::from(blob_gas)
-                    .saturating_mul(U256::from(ctx.block().blob_gasprice().unwrap_or_default())),
-            );
-        let tip = frame_tx
-            .max_priority_fee_per_gas
-            .saturating_mul(U256::from(gas_used))
-            .min(max_cost.saturating_sub(base_fee_paid));
-        let actual_cost = base_fee_paid + tip;
-        (max_cost, actual_cost, ctx.block().beneficiary(), tip)
+        (precharge, actual_cost, ctx.block().beneficiary(), tip)
     };
     evm.ctx()
         .journal_mut()
         .load_account_mut(payer)
         .map_err(H::Error::from)?
-        .incr_balance(max_cost.saturating_sub(actual_cost));
+        .incr_balance(precharge.saturating_sub(actual_cost));
     evm.ctx()
         .journal_mut()
         .load_account_mut(beneficiary)
@@ -1333,8 +1347,8 @@ mod tests {
     use alloy_signer::{Signature, SignerSync};
     use alloy_signer_local::PrivateKeySigner;
     use bytecode::opcode::{
-        APPROVE, CALLDATALOAD, CALLER, EVENTDATACOPY, FRAMEDATACOPY, LOG0, MSTORE, PUSH0, PUSH1,
-        PUSH20, RETURN, REVERT, SIGDATACOPY, SSTORE, STOP, TXTRACE,
+        APPROVE, CALLDATALOAD, CALLER, EVENTDATACOPY, FRAMEDATACOPY, GASPRICE, LOG0, MSTORE, PUSH0,
+        PUSH1, PUSH20, RETURN, REVERT, SIGDATACOPY, SSTORE, STOP, TXTRACE,
     };
     use context::{
         result::EVMError, transaction::FrameTransaction, Context, ContextSetters, TxEnv,
@@ -3763,7 +3777,6 @@ mod tests {
 
     #[test]
     fn fee_settlement_and_gasprice_respect_the_total_budget() {
-        use bytecode::opcode::GASPRICE;
         let mut db = CacheDB::<EmptyDB>::default();
         let mut sender = account_with_code([PUSH1, 3, PUSH0, PUSH0, APPROVE]);
         sender.balance = U256::from(10_000_000);
@@ -3805,5 +3818,136 @@ mod tests {
         assert!(paid <= max_cost);
         assert!(paid >= expected_price * U256::from(gas_used));
         assert_eq!(paid, U256::from(gas_used) * U256::from(15));
+    }
+
+    #[test]
+    fn validation_prefix_reports_the_escrow_instead_of_the_signed_budget() {
+        let balance = U256::from(10_000_000);
+        let mut db = CacheDB::<EmptyDB>::default();
+        db.insert_account_info(
+            SENDER,
+            account_with_code([PUSH1, 3, PUSH0, PUSH0, APPROVE]).with_balance(balance),
+        );
+        let payload = FrameTransaction {
+            frames: vec![frame(
+                FrameMode::Verify,
+                3,
+                FrameAddress::default(),
+                10_000,
+                0,
+            )],
+            max_fee: balance,
+            max_priority_fee_per_gas: U256::from(2),
+            ..Default::default()
+        };
+        let expected = U256::from(payload.gas_limit(SENDER).unwrap()) * U256::from(9);
+        assert!(expected < payload.max_fee);
+        let mut evm = Context::mainnet()
+            .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA))
+            .modify_block_chained(|block| block.basefee = 7)
+            .with_db(db)
+            .build_mainnet();
+        evm.ctx.set_tx(tx_env(SENDER, payload));
+        let mut handler: crate::MainnetHandler<_, EVMError<core::convert::Infallible>, _> =
+            crate::MainnetHandler::default();
+        let result = validate_prefix(&mut handler, &mut evm, 1).unwrap();
+        assert_eq!(result.max_cost, expected);
+        assert_eq!(evm.ctx.journaled_state.state[&SENDER].info.balance, balance);
+        assert_eq!(evm.ctx.journaled_state.state[&SENDER].info.nonce, 0);
+    }
+
+    #[test]
+    fn legacy_max_nonce_is_invalid_even_when_state_nonce_checks_are_disabled() {
+        for keys in [None, Some(vec![])] {
+            let keyed_schema = keys.is_some();
+            let payload = FrameTransaction {
+                frames: vec![payment_frame()],
+                nonce_keys: keys,
+                ..Default::default()
+            };
+            let mut tx = tx_env(SENDER, payload);
+            tx.nonce = u64::MAX;
+            let mut evm = Context::mainnet()
+                .modify_cfg_chained(|cfg| {
+                    cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA);
+                    cfg.enable_eip8250 = keyed_schema;
+                    cfg.disable_nonce_check = true;
+                })
+                .with_db(CacheDB::<EmptyDB>::default())
+                .build_mainnet();
+            assert!(matches!(
+                evm.transact(tx),
+                Err(EVMError::Transaction(
+                    InvalidTransaction::NonceOverflowInTransaction
+                ))
+            ));
+        }
+    }
+
+    #[test]
+    fn disabled_base_fee_applies_to_validation_execution_and_settlement() {
+        let balance = U256::from(1_000_000);
+        let mut db = CacheDB::<EmptyDB>::default();
+        db.insert_account_info(
+            SENDER,
+            account_with_code([PUSH1, 3, PUSH0, PUSH0, APPROVE]).with_balance(balance),
+        );
+        db.insert_account_info(
+            VALUE_TARGET,
+            account_with_code([GASPRICE, PUSH0, MSTORE, PUSH1, 32, PUSH0, RETURN]),
+        );
+        let payload = FrameTransaction {
+            frames: vec![
+                payment_frame(),
+                frame(FrameMode::Sender, 0, VALUE_TARGET.into(), 10_000, 0),
+            ],
+            ..Default::default()
+        };
+        let mut evm = Context::mainnet()
+            .modify_cfg_chained(|cfg| {
+                cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA);
+                cfg.disable_base_fee = true;
+            })
+            .modify_block_chained(|block| block.basefee = 7)
+            .with_db(db)
+            .build_mainnet();
+        let output = evm.transact(tx_env(SENDER, payload)).unwrap();
+        assert!(output.result.is_success());
+        let ExecutionResult::FrameTransaction { frame_outputs, .. } = output.result else {
+            panic!("frame result")
+        };
+        assert_eq!(U256::from_be_slice(&frame_outputs[1]), U256::ZERO);
+        assert_eq!(output.state[&SENDER].info.balance, balance);
+        assert_eq!(evm.ctx.block.basefee, 7);
+    }
+
+    #[test]
+    fn fee_refunds_cannot_exceed_the_actual_simulation_debit() {
+        for balance in [U256::ZERO, U256::from(1), U256::from(10_000_000)] {
+            let mut db = CacheDB::<EmptyDB>::default();
+            db.insert_account_info(
+                SENDER,
+                account_with_code([PUSH1, 3, PUSH0, PUSH0, APPROVE]).with_balance(balance),
+            );
+            let payload = FrameTransaction {
+                frames: vec![payment_frame()],
+                max_fee: U256::from(10_000_000),
+                ..Default::default()
+            };
+            let mut evm = Context::mainnet()
+                .modify_cfg_chained(|cfg| {
+                    cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA);
+                    cfg.disable_balance_check = true;
+                })
+                .modify_block_chained(|block| block.basefee = 7)
+                .with_db(db)
+                .build_mainnet();
+            let output = evm.transact(tx_env(SENDER, payload)).unwrap();
+            assert!(output.result.is_success());
+            assert_eq!(
+                output.state[&SENDER].info.balance,
+                balance.saturating_sub(U256::from(output.result.tx_gas_used()) * U256::from(7))
+            );
+        }
     }
 }
