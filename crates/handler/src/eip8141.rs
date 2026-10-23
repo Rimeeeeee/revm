@@ -2,8 +2,8 @@
 
 use crate::{EvmTr, FrameResult, Handler};
 use alloy_eip8141::{
-    has_valid_post_tx_suffix, FrameGasUsed, FrameMode, FrameReceipt, FrameStatus, SignatureScheme,
-    ENTRY_POINT, FRAME_FLAGS_MASK, MAX_FRAMES, SECP256K1N, SECP256R1N,
+    has_valid_assertion_suffix, FrameGasUsed, FrameMode, FrameReceipt, FrameStatus,
+    SignatureScheme, ENTRY_POINT, FRAME_FLAGS_MASK, MAX_FRAMES, SECP256K1N, SECP256R1N,
 };
 use context::{ContextTr, LocalContextTr};
 use context_interface::{
@@ -24,7 +24,7 @@ struct ExecutedFrames {
     receipts: Vec<FrameReceipt>,
     refunds: Vec<i64>,
     outputs: Vec<Bytes>,
-    post_tx_failed: bool,
+    assertion_failed: bool,
 }
 
 struct AtomicBatch {
@@ -60,7 +60,7 @@ pub fn run<H: Handler + ?Sized>(
         receipts,
         refunds: frame_refunds,
         outputs: frame_outputs,
-        post_tx_failed,
+        assertion_failed,
     } = execute_frames(
         handler,
         evm,
@@ -76,7 +76,7 @@ pub fn run<H: Handler + ?Sized>(
         receipts,
         frame_refunds,
         frame_outputs,
-        post_tx_failed,
+        assertion_failed,
     )
 }
 
@@ -195,14 +195,7 @@ where
             let signature_gas = frame_tx
                 .signature_verification_gas()
                 .ok_or_else(|| invalid::<H::Error>("EIP-8141 signature gas overflow"))?;
-            let max_cost = frame_tx
-                .checked_max_cost_with_params(
-                    evm.ctx_ref().tx().caller(),
-                    evm.ctx_ref().cfg().gas_params(),
-                    evm.ctx_ref().tx().total_blob_gas(),
-                    evm.ctx_ref().block().blob_gasprice().unwrap_or_default(),
-                )
-                .ok_or(InvalidTransaction::OverflowPaymentInTransaction)?;
+            let max_cost = frame_tx.max_fee;
             Ok(FrameValidationResult {
                 payer,
                 max_cost,
@@ -274,7 +267,7 @@ fn prepare<H: Handler + ?Sized>(
     }
     if let Some(keys) = keys {
         alloy_eip8141::validate_nonce_keys(keys).map_err(invalid::<H::Error>)?;
-        if evm.ctx_ref().tx().nonce() == u64::MAX {
+        if keys.is_empty() && evm.ctx_ref().tx().nonce() == u64::MAX {
             return Err(InvalidTransaction::NonceOverflowInTransaction.into());
         }
     }
@@ -351,7 +344,7 @@ where
                 receipts,
                 refunds: frame_refunds,
                 outputs: frame_outputs,
-                post_tx_failed: false,
+                assertion_failed: false,
             });
         }
         let (frame, target) = {
@@ -398,7 +391,7 @@ where
         }
 
         let frame_checkpoint = evm.ctx().journal_mut().checkpoint();
-        if frame.mode == FrameMode::PostTx {
+        if frame.mode == FrameMode::Assert {
             evm.ctx().journal_mut().prepare_eip7906();
         }
         let log_start = evm.ctx_ref().journal().logs().len();
@@ -467,7 +460,7 @@ where
         }
 
         // The validation prefix ends at the first successful frame that approves
-        // payment. Keep that prefix committed while a later POST_TX assertion can
+        // payment. Keep that prefix committed while a later ASSERT assertion can
         // revert the transaction body as a normal execution failure.
         if prefix_end.is_none() && body_checkpoint.is_none() && success {
             let (approval, state_gas_checkpoint) = {
@@ -485,7 +478,7 @@ where
         }
 
         if !success {
-            if frame.mode == FrameMode::PostTx {
+            if frame.mode == FrameMode::Assert {
                 if let Some(checkpoint) = body_checkpoint.take() {
                     evm.ctx()
                         .journal_mut()
@@ -495,7 +488,7 @@ where
                     runtime.root_approval = None;
                     runtime.approval_stack.clear();
                     runtime.revert_state_gas(checkpoint.state_gas_checkpoint);
-                    // The failed POST_TX frame retains its own result and gas usage;
+                    // The failed ASSERT frame retains its own result and gas usage;
                     // only the previously successful execution body is rolled back.
                     for index in checkpoint.receipt_start..receipts.len() - 1 {
                         receipts[index].logs.clear();
@@ -525,7 +518,7 @@ where
                     receipts,
                     refunds: frame_refunds,
                     outputs: frame_outputs,
-                    post_tx_failed: true,
+                    assertion_failed: true,
                 });
             }
             if let Some(atomic) = batch.take() {
@@ -595,7 +588,7 @@ where
                 receipts,
                 refunds: frame_refunds,
                 outputs: frame_outputs,
-                post_tx_failed: false,
+                assertion_failed: false,
             });
         }
         frame_index += 1;
@@ -609,7 +602,7 @@ where
         receipts,
         refunds: frame_refunds,
         outputs: frame_outputs,
-        post_tx_failed: false,
+        assertion_failed: false,
     })
 }
 
@@ -831,7 +824,7 @@ fn finish_transaction<H: Handler + ?Sized>(
     mut receipts: Vec<FrameReceipt>,
     frame_refunds: Vec<i64>,
     frame_outputs: Vec<Bytes>,
-    post_tx_failed: bool,
+    assertion_failed: bool,
 ) -> Result<ExecutionResult<H::HaltReason>, H::Error> {
     let payer = evm
         .ctx_ref()
@@ -891,7 +884,7 @@ fn finish_transaction<H: Handler + ?Sized>(
         .flat_map(|receipt| receipt.logs.iter().cloned())
         .collect();
     Ok(ExecutionResult::FrameTransaction {
-        success: !post_tx_failed,
+        success: !assertion_failed,
         gas: result_gas,
         payer,
         logs,
@@ -950,15 +943,18 @@ fn validate_structure<H: Handler + ?Sized>(evm: &mut H::Evm) -> Result<(), H::Er
         }
         .into());
     }
-    let blob_cost = U256::from(tx.total_blob_gas())
-        .checked_mul(U256::from(ctx.block().blob_gasprice().unwrap_or_default()))
-        .ok_or(InvalidTransaction::OverflowPaymentInTransaction)?;
-    if U256::from(gas_limit)
-        .checked_mul(frame_tx.max_fee_per_gas)
-        .and_then(|execution_cost| execution_cost.checked_add(blob_cost))
+    if frame_tx
+        .fee_budget(
+            gas_limit,
+            ctx.block().basefee() as u128,
+            tx.total_blob_gas(),
+            ctx.block().blob_gasprice().unwrap_or_default(),
+        )
         .is_none()
     {
-        return Err(InvalidTransaction::OverflowPaymentInTransaction.into());
+        return Err(invalid(
+            "EIP-8141 max fee does not cover the required base fees",
+        ));
     }
     if frame_tx
         .frames
@@ -967,9 +963,9 @@ fn validate_structure<H: Handler + ?Sized>(evm: &mut H::Evm) -> Result<(), H::Er
     {
         return Err(invalid("EIP-8141 reserved frame flag is set"));
     }
-    if !has_valid_post_tx_suffix(&frame_tx.frames) {
+    if !has_valid_assertion_suffix(&frame_tx.frames) {
         return Err(invalid(
-            "EIP-7906 POST_TX frames must form a trailing suffix",
+            "EIP-7906 ASSERT frames must form a trailing suffix",
         ));
     }
     let mut expiry_frames = 0usize;
@@ -977,15 +973,15 @@ fn validate_structure<H: Handler + ?Sized>(evm: &mut H::Evm) -> Result<(), H::Er
         if frame.mode != FrameMode::Sender && !frame.value.is_zero() {
             return Err(invalid("only EIP-8141 SENDER frames may transfer value"));
         }
-        if frame.mode == FrameMode::PostTx && frame.is_atomic_batch() {
-            return Err(invalid("EIP-7906 atomic flag is invalid on POST_TX frames"));
+        if frame.mode == FrameMode::Assert && frame.is_atomic_batch() {
+            return Err(invalid("EIP-7906 atomic flag is invalid on ASSERT frames"));
         }
-        if frame.mode == FrameMode::PostTx
+        if frame.mode == FrameMode::Assert
             && index > 0
             && frame_tx.frames[index - 1].is_atomic_batch()
         {
             return Err(invalid(
-                "EIP-7906 atomic batch cannot end on a POST_TX frame",
+                "EIP-7906 atomic batch cannot end on a ASSERT frame",
             ));
         }
         let target = frame
@@ -1135,7 +1131,7 @@ fn validate_sender<H: Handler + ?Sized>(evm: &mut H::Evm) -> Result<(), H::Error
         .tx()
         .frame_transaction()
         .and_then(|tx| tx.nonce_keys.clone());
-    if !nonce_check_disabled && keys.as_ref().is_some_and(|keys| keys != &[U256::ZERO]) {
+    if !nonce_check_disabled && keys.as_ref().is_some_and(|keys| !keys.is_empty()) {
         for key in keys.expect("keyed nonce set") {
             let current = evm
                 .ctx()
@@ -1145,7 +1141,11 @@ fn validate_sender<H: Handler + ?Sized>(evm: &mut H::Evm) -> Result<(), H::Error
                     alloy_eip8141::nonce_slot(sender, key),
                 )
                 .map_err(H::Error::from)?;
-            if current != U256::from(nonce) {
+            if if nonce == u64::MAX {
+                !current.is_zero()
+            } else {
+                current != U256::from(nonce)
+            } {
                 return Err(invalid("EIP-8250 nonce sequence mismatch"));
             }
         }
@@ -1216,7 +1216,7 @@ fn frame_input<H: Handler + ?Sized>(
     } else {
         ENTRY_POINT
     };
-    let is_static = matches!(frame.mode, FrameMode::Verify | FrameMode::PostTx);
+    let is_static = matches!(frame.mode, FrameMode::Verify | FrameMode::Assert);
     Ok((
         target_code_hash,
         FrameInput::Call(Box::new(CallInputs {
@@ -1297,21 +1297,20 @@ fn settle_fees<H: Handler + ?Sized>(
             ctx.cfg().gas_params(),
             blob_gas,
             ctx.block().blob_gasprice().unwrap_or_default(),
+            ctx.block().basefee() as u128,
         );
-        let effective_gas_price = frame_tx.effective_gas_price(ctx.block().basefee() as u128);
-        let actual_cost = U256::from(gas_used)
-            .saturating_mul(effective_gas_price)
+        let base_fee_paid = U256::from(gas_used)
+            .saturating_mul(U256::from(ctx.block().basefee()))
             .saturating_add(
                 U256::from(blob_gas)
                     .saturating_mul(U256::from(ctx.block().blob_gasprice().unwrap_or_default())),
             );
-        let priority_price = effective_gas_price.saturating_sub(U256::from(ctx.block().basefee()));
-        (
-            max_cost,
-            actual_cost,
-            ctx.block().beneficiary(),
-            U256::from(gas_used).saturating_mul(priority_price),
-        )
+        let tip = frame_tx
+            .max_priority_fee_per_gas
+            .saturating_mul(U256::from(gas_used))
+            .min(max_cost.saturating_sub(base_fee_paid));
+        let actual_cost = base_fee_paid + tip;
+        (max_cost, actual_cost, ctx.block().beneficiary(), tip)
     };
     evm.ctx()
         .journal_mut()
@@ -1341,7 +1340,7 @@ mod tests {
         result::EVMError, transaction::FrameTransaction, Context, ContextSetters, TxEnv,
     };
     use database::{CacheDB, EmptyDB};
-    use primitives::{address, eip7825, eip8037, hardfork::SpecId, TxKind, B256};
+    use primitives::{address, eip8037, hardfork::SpecId, TxKind, B256};
     use state::{AccountInfo, Bytecode};
     use std::vec;
 
@@ -1418,32 +1417,8 @@ mod tests {
         frame(FrameMode::Default, 0x03, FrameAddress::default(), 10_000, 0)
     }
 
-    fn post_tx_frame(target: Address) -> Frame {
-        frame(FrameMode::PostTx, 0, encoded_target(target), 10_000, 0)
-    }
-
-    fn append_txdiff_query(
-        code: &mut Vec<u8>,
-        param: u8,
-        address: Address,
-        in3: u8,
-        memory_offset: u8,
-    ) {
-        if in3 == 0 {
-            code.push(PUSH0);
-        } else {
-            code.extend_from_slice(&[PUSH1, in3]);
-        }
-        code.push(PUSH20);
-        code.extend_from_slice(address.as_slice());
-        // Use the spec byte directly so a registry mismatch cannot pass unnoticed.
-        code.extend_from_slice(&[PUSH1, param, 0xb7]);
-        if memory_offset == 0 {
-            code.push(PUSH0);
-        } else {
-            code.extend_from_slice(&[PUSH1, memory_offset]);
-        }
-        code.push(MSTORE);
+    fn assertion_frame(target: Address) -> Frame {
+        frame(FrameMode::Assert, 0, encoded_target(target), 10_000, 0)
     }
 
     #[test]
@@ -1910,9 +1885,7 @@ mod tests {
             .unwrap(),
             U256::ZERO
         );
-        assert!(evm
-            .transact_commit(transaction(vec![U256::ZERO], 7))
-            .is_ok());
+        assert!(evm.transact_commit(transaction(vec![], 7)).is_ok());
         assert_eq!(
             database_interface::Database::basic(&mut evm.ctx.journaled_state.database, SENDER)
                 .unwrap()
@@ -1922,7 +1895,7 @@ mod tests {
         );
         assert!(evm
             .transact_commit(transaction(vec![U256::from(4)], u64::MAX))
-            .is_err());
+            .is_ok());
     }
 
     #[test]
@@ -2110,7 +2083,7 @@ mod tests {
                     data: Bytes::from_static(&[1, 1]),
                     ..Default::default()
                 }],
-                max_fee_per_gas: U256::from(1),
+                max_fee: U256::from(1),
                 ..Default::default()
             };
             let mut tx = tx_env(SENDER, payload);
@@ -2828,38 +2801,6 @@ mod tests {
     }
 
     #[test]
-    fn max_cost_overflow_uses_actual_max_gas() {
-        let mut payload = FrameTransaction {
-            frames: vec![Frame {
-                limits: FrameLimits {
-                    execution: 0,
-                    state: 1,
-                },
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        let intrinsic = payload.intrinsic_gas(SENDER).unwrap();
-        payload.frames[0].limits.execution = eip7825::TX_GAS_LIMIT_CAP - intrinsic;
-        payload.max_fee_per_gas = U256::MAX / U256::from(eip7825::TX_GAS_LIMIT_CAP);
-        assert_eq!(
-            payload.gas_limit(SENDER),
-            Some(eip7825::TX_GAS_LIMIT_CAP + 1)
-        );
-        let mut evm = Context::mainnet()
-            .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA))
-            .with_db(CacheDB::<EmptyDB>::default())
-            .build_mainnet();
-
-        assert!(matches!(
-            evm.transact(tx_env(SENDER, payload)),
-            Err(EVMError::Transaction(
-                InvalidTransaction::OverflowPaymentInTransaction
-            ))
-        ));
-    }
-
-    #[test]
     fn failed_atomic_batch_rolls_back_state_and_skips_remaining_frames() {
         for keyed in [false, true] {
             let approve_code = [PUSH1, 0x03, PUSH0, PUSH0, APPROVE];
@@ -3109,60 +3050,6 @@ mod tests {
     }
 
     #[test]
-    fn max_blob_fee_without_blobs_has_frame_transaction_error() {
-        let payload = FrameTransaction {
-            max_fee_per_blob_gas: U256::from(1),
-            frames: vec![Frame {
-                limits: FrameLimits {
-                    execution: 1,
-                    state: 0,
-                },
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        let tx = tx_env(SENDER, payload);
-        let mut evm = Context::mainnet()
-            .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA))
-            .with_db(CacheDB::<EmptyDB>::default())
-            .build_mainnet();
-
-        assert!(matches!(
-            evm.transact(tx),
-            Err(EVMError::Transaction(
-                InvalidTransaction::Eip8141InvalidFields
-            ))
-        ));
-    }
-
-    #[test]
-    fn full_width_priority_fee_is_validated_without_narrowing() {
-        let payload = FrameTransaction {
-            frames: vec![Frame {
-                limits: FrameLimits {
-                    execution: 1,
-                    state: 0,
-                },
-                ..Default::default()
-            }],
-            max_priority_fee_per_gas: U256::MAX,
-            max_fee_per_gas: U256::MAX - U256::from(1),
-            ..Default::default()
-        };
-        let mut evm = Context::mainnet()
-            .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA))
-            .with_db(CacheDB::<EmptyDB>::default())
-            .build_mainnet();
-
-        assert!(matches!(
-            evm.transact(tx_env(SENDER, payload)),
-            Err(EVMError::Transaction(
-                InvalidTransaction::PriorityFeeGreaterThanMaxFee
-            ))
-        ));
-    }
-
-    #[test]
     fn cross_frame_negative_refund_adjustment_is_preserved() {
         let approve_code = [PUSH1, 0x03, PUSH0, PUSH0, APPROVE];
         let store_calldata_code = [PUSH0, CALLDATALOAD, PUSH0, SSTORE, STOP];
@@ -3302,7 +3189,7 @@ mod tests {
     }
 
     #[test]
-    fn post_tx_cannot_terminate_an_atomic_batch() {
+    fn assertion_cannot_terminate_an_atomic_batch() {
         for preceding_sender in [false, true] {
             let mut frames = vec![payment_frame()];
             if preceding_sender {
@@ -3321,7 +3208,7 @@ mod tests {
                 10_000,
                 0,
             ));
-            frames.push(post_tx_frame(VALUE_TARGET));
+            frames.push(assertion_frame(VALUE_TARGET));
             let payload = FrameTransaction {
                 frames,
                 ..Default::default()
@@ -3334,21 +3221,21 @@ mod tests {
             assert!(matches!(
                 evm.transact(tx_env(SENDER, payload)),
                 Err(EVMError::Transaction(InvalidTransaction::Str(message)))
-                    if message == "EIP-7906 atomic batch cannot end on a POST_TX frame"
+                    if message == "EIP-7906 atomic batch cannot end on a ASSERT frame"
             ));
         }
     }
 
     #[test]
-    fn post_tx_requires_a_trailing_non_atomic_suffix() {
+    fn assertion_requires_a_trailing_non_atomic_suffix() {
         let invalid_frames = [
             vec![
-                post_tx_frame(REVERT_TARGET),
+                assertion_frame(REVERT_TARGET),
                 frame(FrameMode::Default, 0, FrameAddress::default(), 1, 0),
             ],
             vec![
                 frame(FrameMode::Default, 0, FrameAddress::default(), 1, 0),
-                frame(FrameMode::PostTx, 0x04, encoded_target(REVERT_TARGET), 1, 0),
+                frame(FrameMode::Assert, 0x04, encoded_target(REVERT_TARGET), 1, 0),
             ],
         ];
 
@@ -3370,7 +3257,7 @@ mod tests {
     }
 
     #[test]
-    fn post_tx_is_a_static_entry_point_call() {
+    fn assertion_is_a_static_entry_point_call() {
         let mut db = CacheDB::<EmptyDB>::default();
         db.insert_account_info(
             SENDER,
@@ -3381,7 +3268,7 @@ mod tests {
             account_with_code([CALLER, PUSH0, MSTORE, PUSH1, 32, PUSH0, RETURN]),
         );
         let payload = FrameTransaction {
-            frames: vec![payment_frame(), post_tx_frame(REVERT_TARGET)],
+            frames: vec![payment_frame(), assertion_frame(REVERT_TARGET)],
             ..Default::default()
         };
         let mut evm = Context::mainnet()
@@ -3408,7 +3295,7 @@ mod tests {
     }
 
     #[test]
-    fn post_tx_disallows_state_changes_and_approve() {
+    fn assertion_disallows_state_changes_and_approve() {
         for code in [
             vec![PUSH1, 1, PUSH0, SSTORE, STOP],
             vec![PUSH1, 0x03, PUSH0, PUSH0, APPROVE],
@@ -3420,7 +3307,7 @@ mod tests {
             );
             db.insert_account_info(REVERT_TARGET, account_with_code(code));
             let payload = FrameTransaction {
-                frames: vec![payment_frame(), post_tx_frame(REVERT_TARGET)],
+                frames: vec![payment_frame(), assertion_frame(REVERT_TARGET)],
                 ..Default::default()
             };
             let mut evm = Context::mainnet()
@@ -3444,7 +3331,7 @@ mod tests {
     }
 
     #[test]
-    fn post_tx_failure_reverts_the_body_after_an_atomic_batch() {
+    fn assertion_failure_reverts_the_body_after_an_atomic_batch() {
         let mut db = CacheDB::<EmptyDB>::default();
         db.insert_account_info(
             SENDER,
@@ -3473,7 +3360,7 @@ mod tests {
                     10_000,
                     0,
                 ),
-                post_tx_frame(REVERT_TARGET),
+                assertion_frame(REVERT_TARGET),
             ],
             ..Default::default()
         };
@@ -3508,7 +3395,7 @@ mod tests {
     }
 
     #[test]
-    fn txtrace_reads_state_diff_only_inside_post_tx() {
+    fn txtrace_reads_state_diff_only_inside_assertion() {
         let mut db = CacheDB::<EmptyDB>::default();
         db.insert_account_info(
             SENDER,
@@ -3534,7 +3421,7 @@ mod tests {
                     100_000,
                     NEW_SLOT_STATE_GAS,
                 ),
-                post_tx_frame(REVERT_TARGET),
+                assertion_frame(REVERT_TARGET),
             ],
             ..Default::default()
         };
@@ -3585,83 +3472,6 @@ mod tests {
     }
 
     #[test]
-    fn txdiff_reads_before_and_after_values_only_inside_post_tx() {
-        let mut reader = Vec::new();
-        append_txdiff_query(&mut reader, 0x00, STORAGE_TARGET, 0, 0);
-        append_txdiff_query(&mut reader, 0x01, STORAGE_TARGET, 0, 32);
-        reader.extend_from_slice(&[PUSH1, 64, PUSH0, RETURN]);
-
-        let mut db = CacheDB::<EmptyDB>::default();
-        db.insert_account_info(
-            SENDER,
-            account_with_code([PUSH1, 0x03, PUSH0, PUSH0, APPROVE]),
-        );
-        db.insert_account_info(
-            STORAGE_TARGET,
-            account_with_code([PUSH1, 9, PUSH0, SSTORE, STOP]),
-        );
-        db.insert_account_storage(STORAGE_TARGET, U256::ZERO, U256::from(7))
-            .unwrap();
-        db.insert_account_info(REVERT_TARGET, account_with_code(reader.clone()));
-        let payload = FrameTransaction {
-            frames: vec![
-                payment_frame(),
-                frame(
-                    FrameMode::Sender,
-                    0,
-                    encoded_target(STORAGE_TARGET),
-                    100_000,
-                    NEW_SLOT_STATE_GAS,
-                ),
-                post_tx_frame(REVERT_TARGET),
-            ],
-            ..Default::default()
-        };
-        let mut evm = Context::mainnet()
-            .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA))
-            .with_db(db)
-            .build_mainnet();
-
-        let output = evm.transact(tx_env(SENDER, payload)).unwrap();
-        assert!(output.result.is_success());
-        let ExecutionResult::FrameTransaction { frame_outputs, .. } = output.result else {
-            panic!("expected frame transaction result")
-        };
-        assert_eq!(U256::from_be_slice(&frame_outputs[2][..32]), U256::from(7));
-        assert_eq!(U256::from_be_slice(&frame_outputs[2][32..]), U256::from(9));
-
-        let mut db = CacheDB::<EmptyDB>::default();
-        db.insert_account_info(
-            SENDER,
-            account_with_code([PUSH1, 0x03, PUSH0, PUSH0, APPROVE]),
-        );
-        db.insert_account_info(REVERT_TARGET, account_with_code(reader));
-        let payload = FrameTransaction {
-            frames: vec![
-                payment_frame(),
-                frame(
-                    FrameMode::Default,
-                    0,
-                    encoded_target(REVERT_TARGET),
-                    10_000,
-                    0,
-                ),
-            ],
-            ..Default::default()
-        };
-        let mut evm = Context::mainnet()
-            .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA))
-            .with_db(db)
-            .build_mainnet();
-
-        let output = evm.transact(tx_env(SENDER, payload)).unwrap();
-        let ExecutionResult::FrameTransaction { frame_receipts, .. } = output.result else {
-            panic!("expected frame transaction result")
-        };
-        assert_eq!(frame_receipts[1].status, FrameStatus::Failure);
-    }
-
-    #[test]
     fn txtrace_and_eventdatacopy_reject_invalid_indices() {
         let mut db = CacheDB::<EmptyDB>::default();
         db.insert_account_info(
@@ -3673,7 +3483,7 @@ mod tests {
             account_with_code([PUSH1, 0x01, PUSH1, 1, TXTRACE, STOP]),
         );
         let payload = FrameTransaction {
-            frames: vec![payment_frame(), post_tx_frame(REVERT_TARGET)],
+            frames: vec![payment_frame(), assertion_frame(REVERT_TARGET)],
             ..Default::default()
         };
         let mut evm = Context::mainnet()
@@ -3706,7 +3516,7 @@ mod tests {
                     10_000,
                     0,
                 ),
-                post_tx_frame(REVERT_TARGET),
+                assertion_frame(REVERT_TARGET),
             ],
             ..Default::default()
         };
@@ -3719,7 +3529,7 @@ mod tests {
     }
 
     #[test]
-    fn post_tx_failure_emits_receipts_for_the_entire_suffix() {
+    fn assertion_failure_emits_receipts_for_the_entire_suffix() {
         for failure in [vec![PUSH0, PUSH0, REVERT], vec![0xfe]] {
             let mut db = CacheDB::<EmptyDB>::default();
             db.insert_account_info(
@@ -3741,10 +3551,10 @@ mod tests {
                         100_000,
                         NEW_SLOT_STATE_GAS,
                     ),
-                    post_tx_frame(VALUE_TARGET),
-                    post_tx_frame(REVERT_TARGET),
-                    post_tx_frame(STORAGE_TARGET),
-                    post_tx_frame(REVERT_TARGET),
+                    assertion_frame(VALUE_TARGET),
+                    assertion_frame(REVERT_TARGET),
+                    assertion_frame(STORAGE_TARGET),
+                    assertion_frame(REVERT_TARGET),
                 ],
                 ..Default::default()
             };
@@ -3783,7 +3593,7 @@ mod tests {
     }
 
     #[test]
-    fn frame_transaction_finalizes_selfdestruct_after_post_tx() {
+    fn frame_transaction_finalizes_selfdestruct_after_assertion() {
         let created = STORAGE_TARGET.create(1);
         // Initcode returns SSTORE(0, 1); SELFDESTRUCT(ADDRESS).
         let initcode = [
@@ -3805,7 +3615,7 @@ mod tests {
         factory_account.nonce = 1;
         factory_account.balance = U256::from(100);
         db.insert_account_info(STORAGE_TARGET, factory_account);
-        // A created-and-destroyed contract remains visible to POST_TX before cleanup.
+        // A created-and-destroyed contract remains visible to ASSERT before cleanup.
         db.insert_account_info(
             REVERT_TARGET,
             account_with_code([
@@ -3822,7 +3632,7 @@ mod tests {
                     500_000,
                     5_000_000,
                 ),
-                post_tx_frame(REVERT_TARGET),
+                assertion_frame(REVERT_TARGET),
             ],
             ..Default::default()
         };
@@ -3863,7 +3673,18 @@ mod tests {
         );
         db.insert_account_info(
             REVERT_TARGET,
-            account_with_code([PUSH1, 1, PUSH0, PUSH0, PUSH0, 0xb8, PUSH1, 1, PUSH0, RETURN]),
+            account_with_code([
+                PUSH1,
+                1,
+                PUSH0,
+                PUSH0,
+                PUSH0,
+                EVENTDATACOPY,
+                PUSH1,
+                1,
+                PUSH0,
+                RETURN,
+            ]),
         );
         let payload = FrameTransaction {
             frames: vec![
@@ -3875,7 +3696,7 @@ mod tests {
                     10_000,
                     0,
                 ),
-                post_tx_frame(REVERT_TARGET),
+                assertion_frame(REVERT_TARGET),
             ],
             ..Default::default()
         };
@@ -3890,5 +3711,99 @@ mod tests {
             panic!("expected frame transaction result")
         };
         assert_eq!(frame_outputs[2].as_ref(), [0xab]);
+    }
+    #[test]
+    fn single_use_keys_are_exhausted_even_when_the_body_reverts() {
+        use crate::ExecuteCommitEvm;
+        use alloy_eip8141::{nonce_calldata, nonce_slot, NONCE_MANAGER};
+        let mut db = CacheDB::<EmptyDB>::default();
+        db.insert_account_info(SENDER, account_with_code([PUSH1, 3, PUSH0, PUSH0, APPROVE]));
+        db.insert_account_info(REVERT_TARGET, account_with_code([PUSH0, PUSH0, REVERT]));
+        let keys = vec![U256::ZERO, U256::from(1)];
+        let make_tx = |nonce| {
+            let mut pay = payment_frame();
+            pay.limits.state = 2 * NEW_SLOT_STATE_GAS;
+            let payload = FrameTransaction {
+                nonce_keys: Some(keys.clone()),
+                nonce_calldata: nonce_calldata(&keys, nonce),
+                frames: vec![pay, assertion_frame(REVERT_TARGET)],
+                ..Default::default()
+            };
+            let mut tx = tx_env(SENDER, payload);
+            tx.nonce = nonce;
+            tx
+        };
+        let mut evm = Context::mainnet()
+            .modify_cfg_chained(|cfg| {
+                cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA);
+                cfg.enable_eip8250 = true;
+            })
+            .with_db(db)
+            .build_mainnet();
+        let result = evm.transact_commit(make_tx(u64::MAX)).unwrap();
+        assert!(!result.is_success());
+        let db = &mut evm.ctx.journaled_state.database;
+        for key in &keys {
+            assert_eq!(
+                database_interface::Database::storage(db, NONCE_MANAGER, nonce_slot(SENDER, *key))
+                    .unwrap(),
+                U256::from(u64::MAX)
+            );
+        }
+        assert_eq!(
+            database_interface::Database::basic(db, SENDER)
+                .unwrap()
+                .unwrap()
+                .nonce,
+            0
+        );
+        assert!(evm.transact_commit(make_tx(u64::MAX)).is_err());
+        assert!(evm.transact_commit(make_tx(0)).is_err());
+    }
+
+    #[test]
+    fn fee_settlement_and_gasprice_respect_the_total_budget() {
+        use bytecode::opcode::GASPRICE;
+        let mut db = CacheDB::<EmptyDB>::default();
+        let mut sender = account_with_code([PUSH1, 3, PUSH0, PUSH0, APPROVE]);
+        sender.balance = U256::from(10_000_000);
+        db.insert_account_info(SENDER, sender.clone());
+        db.insert_account_info(
+            VALUE_TARGET,
+            account_with_code([GASPRICE, PUSH0, MSTORE, PUSH1, 32, PUSH0, RETURN]),
+        );
+        let mut payload = FrameTransaction {
+            frames: vec![
+                payment_frame(),
+                frame(FrameMode::Sender, 0, VALUE_TARGET.into(), 100_000, 0),
+            ],
+            max_priority_fee_per_gas: U256::from(5),
+            ..Default::default()
+        };
+        let max_gas = payload.gas_limit(SENDER).unwrap();
+        payload.max_fee = U256::from(max_gas) * U256::from(11);
+        let expected_price = payload.effective_gas_price(max_gas, 10, 0, 0).unwrap();
+        let max_cost = payload.max_fee;
+        let mut evm = Context::mainnet()
+            .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA))
+            .modify_block_chained(|block| block.basefee = 10)
+            .with_db(db)
+            .build_mainnet();
+        let output = evm.transact(tx_env(SENDER, payload)).unwrap();
+        let gas_used = output.result.gas().frame_tx_gas_used();
+        let ExecutionResult::FrameTransaction {
+            success,
+            frame_outputs,
+            ..
+        } = output.result
+        else {
+            panic!("expected frames")
+        };
+        assert!(success);
+        assert_eq!(U256::from_be_slice(&frame_outputs[1]), expected_price);
+        let paid = sender.balance - output.state[&SENDER].info.balance;
+        assert!(paid <= max_cost);
+        assert!(paid >= expected_price * U256::from(gas_used));
+        assert_eq!(paid, U256::from(gas_used) * U256::from(15));
     }
 }

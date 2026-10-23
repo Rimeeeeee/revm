@@ -131,7 +131,7 @@ pub trait JournalTr {
     /// Returns the logs from journal.
     fn logs(&self) -> &[Log];
 
-    /// Freeze indexed EIP-7906 views before the read-only POST_TX suffix.
+    /// Freeze indexed EIP-7906 views before the read-only ASSERT suffix.
     ///
     /// Implementations may reuse the view across static descendants. Transaction
     /// boundaries and execution-body rollback must invalidate it.
@@ -143,21 +143,6 @@ pub trait JournalTr {
     /// caller maps an unavailable or invalid query to an exceptional halt.
     fn eip7906_txtrace(&self, _param: U256, _index: U256) -> Option<U256> {
         None
-    }
-
-    /// Returns one EIP-7906 direct or indexed state-diff lookup.
-    ///
-    /// `Ok(None)` denotes an invalid selector or operand. Implementations must
-    /// preserve the cold-load flag so the interpreter can charge EIP-2929 gas.
-    fn eip7906_txdiff(
-        &mut self,
-        _param: U256,
-        _in2: U256,
-        _in3: U256,
-        _skip_cold_load: bool,
-    ) -> Result<Option<StateLoad<U256>>, JournalLoadError<<Self::Database as Database>::Error>>
-    {
-        Ok(None)
     }
 
     /// Returns the non-indexed data for one EIP-7906 transaction event.
@@ -201,13 +186,13 @@ pub trait JournalTr {
     /// Sets EIP-7708 and EIP-8246 configuration flags.
     ///
     /// - `disabled`: Whether EIP-7708 (ETH transfers emit logs) is completely disabled.
-    /// - `eip8246_delayed_clear_disabled`: Whether the EIP-8246 delayed clearing of
-    ///   self-destructed accounts is disabled. When enabled, revm tracks all self-destructed
-    ///   addresses and, at the end of the transaction, clears the code, storage and nonce of
-    ///   any that still have a remaining balance while preserving the balance. This can be
-    ///   disabled for performance reasons as it requires storing and iterating over all
-    ///   self-destructed accounts. When disabled, this clearing can be done outside of revm
-    ///   when applying accounts to database state.
+    /// - `eip8246_delayed_clear_disabled`: Whether the EIP-8246 delayed clearing of self-destructed
+    ///   accounts is disabled. When enabled, revm tracks all self-destructed addresses and, at the
+    ///   end of the transaction, clears the code, storage and nonce of any that still have a
+    ///   remaining balance while preserving the balance. This can be disabled for performance
+    ///   reasons as it requires storing and iterating over all self-destructed accounts. When
+    ///   disabled, this clearing can be done outside of revm when applying accounts to database
+    ///   state.
     fn set_eip7708_config(&mut self, disabled: bool, eip8246_delayed_clear_disabled: bool);
 
     /// Touches the account.
@@ -397,10 +382,11 @@ pub trait JournalTr {
     /// Commit current transaction journal and returns transaction logs.
     fn commit_tx(&mut self);
 
-    /// Discard current transaction journal by removing journal entries and logs and incrementing the transaction id.
+    /// Discard current transaction journal by removing journal entries and logs and incrementing
+    /// the transaction id.
     ///
-    /// This function is useful to discard intermediate state that is interrupted by error and it will not revert
-    /// any already committed changes and it is safe to call it multiple times.
+    /// This function is useful to discard intermediate state that is interrupted by error and it
+    /// will not revert any already committed changes and it is safe to call it multiple times.
     fn discard_tx(&mut self);
 
     /// Clear current journal resetting it to initial state and return changes state.
@@ -594,7 +580,8 @@ pub struct AccountInfoLoad<'a> {
 }
 
 impl<'a> AccountInfoLoad<'a> {
-    /// Creates new [`AccountInfoLoad`] with the given account info, cold load status and empty status.
+    /// Creates new [`AccountInfoLoad`] with the given account info, cold load status and empty
+    /// status.
     #[inline]
     pub const fn new(account: &'a AccountInfo, is_cold: bool, is_empty: bool) -> Self {
         Self {
@@ -606,7 +593,8 @@ impl<'a> AccountInfoLoad<'a> {
 
     /// Maps the account info of the [`AccountInfoLoad`] to a new [`StateLoad`].
     ///
-    /// Useful for transforming the account info of the [`AccountInfoLoad`] and preserving the cold load status.
+    /// Useful for transforming the account info of the [`AccountInfoLoad`] and preserving the cold
+    /// load status.
     #[inline]
     pub fn into_state_load<F, O>(self, f: F) -> StateLoad<O>
     where

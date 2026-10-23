@@ -30,11 +30,13 @@ pub struct JournalCfg {
     /// The spec ID for the EVM. Spec is required for some journal entries and needs to be set for
     /// JournalInner to be functional.
     ///
-    /// If spec is set it assumed that precompile addresses are set as well for this particular spec.
+    /// If spec is set it assumed that precompile addresses are set as well for this particular
+    /// spec.
     ///
     /// This spec is used for two things:
     ///
-    /// - [EIP-161]: Prior to this EIP, Ethereum had separate definitions for empty and non-existing accounts.
+    /// - [EIP-161]: Prior to this EIP, Ethereum had separate definitions for empty and
+    ///   non-existing accounts.
     /// - [EIP-6780]: `SELFDESTRUCT` only in same transaction
     ///
     /// [EIP-161]: https://eips.ethereum.org/EIPS/eip-161
@@ -60,7 +62,7 @@ pub struct JournalCfg {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct JournalInner<ENTRY> {
-    /// Frozen EIP-7906 indices for the read-only POST_TX suffix.
+    /// Frozen EIP-7906 indices for the read-only ASSERT suffix.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) eip7906_diff: Option<super::Eip7906Diff>,
     /// The current state
@@ -75,9 +77,9 @@ pub struct JournalInner<ENTRY> {
     pub depth: usize,
     /// The journal of state changes, one for each transaction
     pub journal: Vec<ENTRY>,
-    /// Global transaction id that represent number of transactions executed (Including reverted ones).
-    /// It can be different from number of `journal_history` as some transaction could be
-    /// reverted or had a error on execution.
+    /// Global transaction id that represent number of transactions executed (Including reverted
+    /// ones). It can be different from number of `journal_history` as some transaction could
+    /// be reverted or had a error on execution.
     ///
     /// This ID is used in `Self::state` to determine if account/storage is touched/warm/cold.
     pub transaction_id: TransactionId,
@@ -145,8 +147,8 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
         mem::take(&mut self.logs)
     }
 
-    /// Prepare for next transaction, by committing the current journal to history, incrementing the transaction id
-    /// and returning the logs.
+    /// Prepare for next transaction, by committing the current journal to history, incrementing the
+    /// transaction id and returning the logs.
     ///
     /// This function is used to prepare for next transaction. It will save the current journal
     /// and clear the journal for the next transaction.
@@ -186,7 +188,8 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
         selfdestructed_addresses.clear();
     }
 
-    /// Discard the current transaction, by reverting the journal entries and incrementing the transaction id.
+    /// Discard the current transaction, by reverting the journal entries and incrementing the
+    /// transaction id.
     pub fn discard_tx(&mut self) {
         // if there is no journal entries, there has not been any changes.
         let Self {
@@ -389,7 +392,8 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
     pub fn account(&self, address: Address) -> &Account {
         self.state
             .get(&address)
-            .expect("Account expected to be loaded") // Always assume that acc is already loaded
+            .expect("Account expected to be loaded") // Always assume that acc
+                                                     // is already loaded
     }
 
     /// Set code and its hash to the account.
@@ -510,7 +514,8 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
         Self::touch_account(&mut self.journal, to, to_account);
         let to_balance = &mut to_account.info.balance;
         let Some(to_balance_incr) = to_balance.checked_add(balance) else {
-            // Overflow of U256 balance is not possible to happen on mainnet. We don't bother to return funds from from_acc.
+            // Overflow of U256 balance is not possible to happen on mainnet. We don't bother to
+            // return funds from from_acc.
             return Some(TransferError::OverflowPayment);
         };
         *to_balance = to_balance_incr;
@@ -542,8 +547,8 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
     /// Creates account or returns false if collision is detected.
     ///
     /// There are few steps done:
-    /// 1. Make created account warm loaded (AccessList) and this should
-    ///    be done before subroutine checkpoint is created.
+    /// 1. Make created account warm loaded (AccessList) and this should be done before subroutine
+    ///    checkpoint is created.
     /// 2. Check if there is collision of newly created account with existing one.
     /// 3. Mark created account as created.
     /// 4. Add fund to created account
@@ -800,8 +805,8 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
     ///
     /// It will mark both this and delegated account as warm loaded.
     ///
-    /// Returns information about the account (If it is empty or cold loaded) and if present the information
-    /// about the delegated account (If it is cold loaded).
+    /// Returns information about the account (If it is empty or cold loaded) and if present the
+    /// information about the delegated account (If it is cold loaded).
     #[inline]
     pub fn load_account_delegated<DB: Database>(
         &mut self,
@@ -914,9 +919,9 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
     ///
     /// # Load Unsafe
     ///
-    /// Use this function only if you know what you are doing. It will not mark the account as warm or cold.
-    /// It will not bump transition_id or return if it is cold or warm loaded. This function is useful
-    /// when we know account is warm, touched and already loaded.
+    /// Use this function only if you know what you are doing. It will not mark the account as warm
+    /// or cold. It will not bump transition_id or return if it is cold or warm loaded. This
+    /// function is useful when we know account is warm, touched and already loaded.
     ///
     /// It is useful when we want to access storage from account that is currently being executed.
     #[inline]
@@ -966,7 +971,8 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
                     account.mark_warm_with_transaction_id(self.transaction_id);
 
                     // if it is cold loaded and we have selfdestructed locally it means that
-                    // account was selfdestructed in previous transaction and we need to clear its information and storage.
+                    // account was selfdestructed in previous transaction and we need to clear its
+                    // information and storage.
                     if account.is_selfdestructed_locally() {
                         account.selfdestruct();
                         account.unmark_selfdestructed_locally();
@@ -1016,29 +1022,6 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
             ),
             is_cold,
         ))
-    }
-
-    /// Loads an EIP-7906 slot without warming its account address.
-    pub fn eip7906_sload<DB: Database>(
-        &mut self,
-        db: &mut DB,
-        address: Address,
-        key: StorageKey,
-        skip_cold_load: bool,
-    ) -> Result<StateLoad<StorageValue>, JournalLoadError<DB::Error>> {
-        let slot_cold = self
-            .state
-            .get(&address)
-            .and_then(|account| account.storage.get(&key))
-            .is_none_or(|slot| slot.is_cold_transaction_id(self.transaction_id))
-            && !self.warm_addresses.is_storage_warm(&address, &key);
-        // An unaffordable lookup must not even read the account from the DB:
-        // those reads are also used to construct the block access list.
-        if slot_cold && skip_cold_load {
-            return Err(JournalLoadError::ColdLoadSkipped);
-        }
-        self.load_protocol_account(db, address)?;
-        self.sload_assume_account_present(db, address, key, skip_cold_load)
     }
 
     /// Loads storage slot.

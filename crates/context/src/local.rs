@@ -1,6 +1,5 @@
 //! Local context that is filled by execution.
-use context_interface::local::FrameTransactionRuntime;
-use context_interface::LocalContextTr;
+use context_interface::{local::FrameTransactionRuntime, LocalContextTr};
 use core::cell::RefCell;
 use std::{boxed::Box, rc::Rc, string::String, vec::Vec};
 

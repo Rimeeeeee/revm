@@ -5,7 +5,7 @@ use crate::{
     InstructionContext as Ictx, InstructionExecResult as Result, InstructionResult,
 };
 use context_interface::{host::FrameHostError, Host};
-use primitives::{eip7906::TxDiffParam, Bytes, B256, U256};
+use primitives::{Bytes, B256, U256};
 
 use super::system::copy_cost_and_memory_resize;
 
@@ -23,8 +23,8 @@ const fn host_error(error: FrameHostError) -> InstructionResult {
 pub fn approve<IT: ITy, H: Host + ?Sized>(context: Ictx<'_, H, IT>) -> Result {
     check!(context.interpreter, BOGOTA);
     // EIP-8141 deliberately permits APPROVE from VERIFY's static call. EIP-7906
-    // does not extend that exception to POST_TX frames.
-    if context.host.is_post_tx_frame() {
+    // does not extend that exception to ASSERT frames.
+    if context.host.is_assertion_frame() {
         return Err(InstructionResult::StateChangeDuringStaticCall);
     }
     popn!([offset, len, scope], context.interpreter);
@@ -173,35 +173,7 @@ pub fn txtrace<IT: ITy, H: Host + ?Sized>(context: Ictx<'_, H, IT>) -> Result {
     Ok(())
 }
 
-/// EIP-7906 `TXDIFF` (0xb7).
-pub fn txdiff<IT: ITy, H: Host + ?Sized>(context: Ictx<'_, H, IT>) -> Result {
-    check!(context.interpreter, BOGOTA);
-    // Stack top: param, in2, in3.
-    popn!([param, in2, in3], context.interpreter);
-    let selector = u8::try_from(param)
-        .ok()
-        .and_then(|value| TxDiffParam::try_from(value).ok())
-        .ok_or(InstructionResult::OpcodeNotFound)?;
-    let additional_cold_cost = if selector.is_storage_lookup() {
-        context.host.gas_params().cold_storage_additional_cost()
-    } else if selector.is_account_lookup() {
-        context.host.gas_params().cold_account_additional_cost()
-    } else {
-        0
-    };
-    let skip_cold_load = context.interpreter.gas.remaining() < additional_cold_cost;
-    let value = context
-        .host
-        .txdiff(param, in2, in3, skip_cold_load)
-        .map_err(host_error)?;
-    if value.is_cold {
-        gas!(context.interpreter, additional_cold_cost);
-    }
-    push!(context.interpreter, value.data);
-    Ok(())
-}
-
-/// EIP-7906 `EVENTDATACOPY` (0xb8).
+/// EIP-7906 `EVENTDATACOPY` (0xb7).
 pub fn eventdatacopy<IT: ITy, H: Host + ?Sized>(context: Ictx<'_, H, IT>) -> Result {
     check!(context.interpreter, BOGOTA);
     // Stack top: event_index, mem_offset, data_offset, length.

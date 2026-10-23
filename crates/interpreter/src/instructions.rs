@@ -32,8 +32,10 @@ pub mod utility;
 pub use context_interface::cfg::gas::{self, *};
 
 use crate::{interpreter_types::InterpreterTypes, Host, InstructionContext, InstructionExecResult};
-use primitives::eip7906::{EVENTDATACOPY_GAS_COST, TXTRACE_GAS_COST};
-use primitives::hardfork::SpecId;
+use primitives::{
+    eip7906::{EVENTDATACOPY_GAS_COST, TXTRACE_GAS_COST},
+    hardfork::SpecId,
+};
 
 /// EVM opcode function pointer.
 #[derive(Debug)]
@@ -116,7 +118,8 @@ pub const fn gas_table_spec(spec: SpecId) -> GasTable {
     }
 
     if spec.is_enabled_in(BERLIN) {
-        // warm account cost is base gas that is spend. Additional gas depends if account is cold loaded.
+        // warm account cost is base gas that is spend. Additional gas depends if account is cold
+        // loaded.
         table[SLOAD as usize] = gas::WARM_STORAGE_READ_COST as u16;
         table[BALANCE as usize] = gas::WARM_STORAGE_READ_COST as u16;
         table[EXTCODESIZE as usize] = gas::WARM_STORAGE_READ_COST as u16;
@@ -310,7 +313,6 @@ const fn instruction_table_impl<WIRE: InterpreterTypes, H: Host>() -> Instructio
     table[SIGPARAM as usize] = Instruction::new(frame::sigparam);
     table[SIGDATACOPY as usize] = Instruction::new(frame::sigdatacopy);
     table[TXTRACE as usize] = Instruction::new(frame::txtrace);
-    table[TXDIFF as usize] = Instruction::new(frame::txdiff);
     table[EVENTDATACOPY as usize] = Instruction::new(frame::eventdatacopy);
 
     table[CREATE as usize] = Instruction::new(contract::create::<false, _, _>);
@@ -496,7 +498,6 @@ const fn gas_table_impl() -> GasTable {
     table[SIGPARAM as usize] = 2;
     table[SIGDATACOPY as usize] = 3;
     table[TXTRACE as usize] = TXTRACE_GAS_COST as u16;
-    table[TXDIFF as usize] = TXTRACE_GAS_COST as u16;
     table[EVENTDATACOPY as usize] = EVENTDATACOPY_GAS_COST as u16;
 
     table[CREATE as usize] = 0;

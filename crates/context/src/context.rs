@@ -175,7 +175,8 @@ where
     JOURNAL: JournalTr<Database = DB>,
     LOCAL: LocalContextTr,
 {
-    /// Creates a new context with a new journal type. New journal needs to have the same database type.
+    /// Creates a new context with a new journal type. New journal needs to have the same database
+    /// type.
     pub fn with_new_journal<OJOURNAL: JournalTr<Database = DB>>(
         self,
         mut journal: OJOURNAL,
@@ -494,7 +495,16 @@ impl<
         let basefee = self.block().basefee();
         self.tx()
             .frame_transaction()
-            .map(|frame_tx| frame_tx.effective_gas_price(basefee as u128))
+            .map(|frame_tx| {
+                frame_tx
+                    .effective_gas_price(
+                        self.tx().gas_limit(),
+                        basefee as u128,
+                        self.tx().total_blob_gas(),
+                        self.block().blob_gasprice().unwrap_or_default(),
+                    )
+                    .unwrap_or_default()
+            })
             .unwrap_or_else(|| U256::from(self.tx().effective_gas_price(basefee as u128)))
     }
 
@@ -535,14 +545,7 @@ impl<
             p if p == U256::from(1) => U256::from(tx.nonce()),
             p if p == U256::from(2) => U256::from_be_slice(tx.caller().as_slice()),
             p if p == U256::from(3) => frame_tx.max_priority_fee_per_gas,
-            p if p == U256::from(4) => frame_tx.max_fee_per_gas,
-            p if p == U256::from(5) => frame_tx.max_fee_per_blob_gas,
-            p if p == U256::from(6) => frame_tx.max_cost_with_params(
-                tx.caller(),
-                self.cfg().gas_params(),
-                tx.total_blob_gas(),
-                self.block().blob_gasprice().unwrap_or_default(),
-            ),
+            p if p == U256::from(4) => frame_tx.max_fee,
             p if p == U256::from(7) => U256::from(tx.blob_versioned_hashes().len()),
             p if p == U256::from(8) => U256::from_be_bytes(frame_tx.signature_hash.0),
             p if p == U256::from(9) => U256::from(frame_tx.frames.len()),
@@ -556,7 +559,12 @@ impl<
             p if p == U256::from(15) => U256::from_be_bytes(
                 alloy_eip8141::nonce_keys_hash(frame_tx.nonce_keys.as_deref()?).0,
             ),
-            p if p == U256::from(16) => *frame_tx.nonce_keys.as_ref()?.first()?,
+            p if p == U256::from(16) => frame_tx
+                .nonce_keys
+                .as_ref()?
+                .first()
+                .copied()
+                .unwrap_or_default(),
             _ => return None,
         })
     }
@@ -652,7 +660,7 @@ impl<
             .then(|| signature.signature.clone())
     }
 
-    fn is_post_tx_frame(&self) -> bool {
+    fn is_assertion_frame(&self) -> bool {
         let frame_tx = match self.tx().frame_transaction() {
             Some(frame_tx) => frame_tx,
             None => return false,
@@ -664,22 +672,22 @@ impl<
         frame_tx
             .frames
             .get(runtime.current_frame_index)
-            .is_some_and(|frame| frame.mode == alloy_eip8141::FrameMode::PostTx)
+            .is_some_and(|frame| frame.mode == alloy_eip8141::FrameMode::Assert)
     }
 
     fn txtrace(&self, param: U256, index: U256) -> Option<U256> {
-        if !self.is_post_tx_frame() {
+        if !self.is_assertion_frame() {
             return None;
         }
 
         match u8::try_from(param).ok()? {
-            0x14 => {
+            0x19 => {
                 if !index.is_zero() {
                     return None;
                 }
                 Some(self.local().frame_transaction()?.approval.gas_pre_charge)
             }
-            0x15 => {
+            0x1A => {
                 if !index.is_zero() {
                     return None;
                 }
@@ -690,39 +698,8 @@ impl<
         }
     }
 
-    fn txdiff(
-        &mut self,
-        param: U256,
-        in2: U256,
-        in3: U256,
-        skip_cold_load: bool,
-    ) -> Result<StateLoad<U256>, FrameHostError> {
-        if !self.is_post_tx_frame() {
-            return Err(FrameHostError::Invalid);
-        }
-
-        match self
-            .journal_mut()
-            .eip7906_txdiff(param, in2, in3, skip_cold_load)
-        {
-            Ok(Some(value)) => Ok(value),
-            Ok(None) => Err(FrameHostError::Invalid),
-            Err(error) => {
-                cold_path();
-                let (load_error, db_error) = error.into_parts();
-                if let Some(error) = db_error {
-                    *self.error() = Err(error.into());
-                }
-                Err(match load_error {
-                    LoadError::ColdLoadSkipped => FrameHostError::OutOfGas,
-                    LoadError::DBError => FrameHostError::Fatal,
-                })
-            }
-        }
-    }
-
     fn event_data(&self, event_index: U256) -> Option<Bytes> {
-        self.is_post_tx_frame()
+        self.is_assertion_frame()
             .then(|| self.journal().eip7906_event_data(event_index))
             .flatten()
     }
@@ -951,10 +928,11 @@ fn charge_frame_payer<CTX: ContextTr>(
             ctx.cfg().gas_params(),
             tx.total_blob_gas(),
             ctx.block().blob_gasprice().unwrap_or_default(),
+            ctx.block().basefee() as u128,
         );
     let keys = tx.frame_transaction().and_then(|tx| tx.nonce_keys.clone());
     let sequence = tx.nonce();
-    let keyed = keys.as_ref().is_some_and(|keys| keys != &[U256::ZERO]);
+    let keyed = keys.as_ref().is_some_and(|keys| !keys.is_empty());
     let balance_check_disabled = ctx.cfg().is_balance_check_disabled();
     let fee_charge_disabled = ctx.cfg().is_fee_charge_disabled();
     let charged_state_gas = if keyed {
@@ -1017,7 +995,11 @@ fn charge_frame_payer<CTX: ContextTr>(
     }
 
     if keyed {
-        let next = sequence.checked_add(1).ok_or(FrameHostError::OutOfGas)?;
+        let next = if sequence == u64::MAX {
+            u64::MAX
+        } else {
+            sequence + 1
+        };
         for key in keys.expect("keyed nonce set") {
             ctx.journal_mut()
                 .protocol_sstore(
@@ -1111,9 +1093,8 @@ mod precharge_tests {
                     // Include the blob precharge and use a payer distinct from the sender.
                     ctx.tx.blob_hashes = vec![B256::ZERO];
                     let payload = FrameTransaction {
-                        max_fee_per_gas: U256::from(1),
+                        max_fee: U256::from(1_000_000),
                         max_priority_fee_per_gas: U256::from(1),
-                        max_fee_per_blob_gas: U256::from(1),
                         frames: vec![
                             Frame {
                                 mode: FrameMode::Default,
@@ -1126,7 +1107,7 @@ mod precharge_tests {
                                 ..Default::default()
                             },
                             Frame {
-                                mode: FrameMode::PostTx,
+                                mode: FrameMode::Assert,
                                 target: payer.into(),
                                 limits: FrameLimits {
                                     execution: 10_000,
@@ -1142,6 +1123,7 @@ mod precharge_tests {
                         ctx.cfg.gas_params(),
                         ctx.tx.total_blob_gas(),
                         ctx.block.blob_gasprice().unwrap(),
+                        ctx.block.basefee as u128,
                     );
                     ctx.tx.caller = sender;
                     ctx.tx.frame_transaction = Some(payload.into());
@@ -1165,8 +1147,8 @@ mod precharge_tests {
                     } else {
                         balance.min(maximum)
                     };
-                    assert_eq!(ctx.txtrace(U256::from(0x14), U256::ZERO), Some(expected));
-                    assert_eq!(ctx.txtrace(U256::from(0x14), U256::from(1)), None);
+                    assert_eq!(ctx.txtrace(U256::from(0x19), U256::ZERO), Some(expected));
+                    assert_eq!(ctx.txtrace(U256::from(0x19), U256::from(1)), None);
                     if success && !disabled {
                         assert_eq!(
                             ctx.journaled_state.state[&payer].info.balance,

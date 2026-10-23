@@ -27,22 +27,41 @@ pub struct FrameTransaction {
     /// EIP-8141 priority-fee cap.
     pub max_priority_fee_per_gas: U256,
     /// EIP-8141 fee cap. Unlike ordinary transaction fee caps, this is a full
-    /// 256-bit RLP quantity because approval bounds use the transaction gas cap.
-    pub max_fee_per_gas: U256,
-    /// EIP-8141 blob-fee inclusion cap.
-    pub max_fee_per_blob_gas: U256,
+    /// 256-bit RLP quantity covering all resources.
+    pub max_fee: U256,
 }
 
 impl FrameTransaction {
-    /// Calculates the EIP-1559 effective price without narrowing EIP-8141's
-    /// 256-bit fee fields.
-    #[inline]
-    pub fn effective_gas_price(&self, base_fee: u128) -> U256 {
-        self.max_fee_per_gas.min(
-            U256::from(base_fee)
-                .checked_add(self.max_priority_fee_per_gas)
-                .unwrap_or(U256::MAX),
-        )
+    /// Returns the worst-case base fee and budget-limited priority fee.
+    pub fn fee_budget(
+        &self,
+        max_gas: u64,
+        base_fee: u128,
+        blob_gas: u64,
+        blob_base_fee: u128,
+    ) -> Option<(U256, U256)> {
+        let required = U256::from(max_gas)
+            .checked_mul(U256::from(base_fee))?
+            .checked_add(U256::from(blob_gas).checked_mul(U256::from(blob_base_fee))?)?;
+        let headroom = self.max_fee.checked_sub(required)?;
+        let tip = self
+            .max_priority_fee_per_gas
+            .checked_mul(U256::from(max_gas))
+            .unwrap_or(U256::MAX)
+            .min(headroom);
+        Some((required, tip))
+    }
+
+    /// The frame transaction GASPRICE is a stable lower bound on the settled price.
+    pub fn effective_gas_price(
+        &self,
+        max_gas: u64,
+        base_fee: u128,
+        blob_gas: u64,
+        blob_base_fee: u128,
+    ) -> Option<U256> {
+        let (_, tip) = self.fee_budget(max_gas, base_fee, blob_gas, blob_base_fee)?;
+        Some(U256::from(base_fee) + tip / U256::from(max_gas.max(1)))
     }
 
     /// Returns the sum of all top-level frame gas allocations.
@@ -107,7 +126,11 @@ impl FrameTransaction {
                 total
                     .saturating_add(tokens(signature.signer.as_bytes()))
                     .saturating_add(tokens(signature.msg.as_bytes()))
-                    .saturating_add(tokens(&signature.signature))
+                    .saturating_add(if signature.signs_transaction_hash() {
+                        (signature.signature.len() as u64).saturating_mul(non_zero_byte_multiplier)
+                    } else {
+                        tokens(&signature.signature)
+                    })
             })
     }
 
@@ -152,11 +175,11 @@ impl FrameTransaction {
         self.intrinsic_gas_with_params(sender, &GasParams::new_spec(SpecId::AMSTERDAM))
     }
 
-    /// Prices each non-zero nonce key's cold storage read and write under EIP-8250.
+    /// Prices each nonce key's cold storage read and write under EIP-8250.
     pub fn keyed_nonce_access_gas_with_params(&self, gas_params: &GasParams) -> Option<u64> {
         let count = match self.nonce_keys.as_deref() {
             None => return Some(0),
-            Some([key]) if key.is_zero() => return Some(0),
+            Some([]) => return Some(0),
             Some(keys) => keys.len() as u64,
         };
         gas_params
@@ -228,19 +251,21 @@ impl FrameTransaction {
 
     /// Calculates the maximum fee exposure checked when a payer approves payment.
     ///
-    /// `blob_base_fee` is used for blob costs because `max_fee_per_blob_gas` is only
-    /// an inclusion bound for EIP-8141 transactions.
+    /// Reserves base fees for the maximum gas and blob gas, then adds the tip
+    /// allowed by the signed total fee budget.
     pub fn checked_max_cost(
         &self,
         sender: Address,
         blob_gas: u64,
         blob_base_fee: u128,
+        base_fee: u128,
     ) -> Option<U256> {
         self.checked_max_cost_with_params(
             sender,
             &GasParams::new_spec(SpecId::AMSTERDAM),
             blob_gas,
             blob_base_fee,
+            base_fee,
         )
     }
 
@@ -251,17 +276,28 @@ impl FrameTransaction {
         gas_params: &GasParams,
         blob_gas: u64,
         blob_base_fee: u128,
+        base_fee: u128,
     ) -> Option<U256> {
-        U256::from(self.gas_limit_with_params(sender, gas_params)?)
-            .checked_mul(self.max_fee_per_gas)?
-            .checked_add(U256::from(blob_gas).checked_mul(U256::from(blob_base_fee))?)
+        let (required, tip) = self.fee_budget(
+            self.gas_limit_with_params(sender, gas_params)?,
+            base_fee,
+            blob_gas,
+            blob_base_fee,
+        )?;
+        required.checked_add(tip)
     }
 
     /// Calculates the validated maximum fee exposure.
     ///
     /// Frame transactions whose maximum cost overflows are rejected during validation.
-    pub fn max_cost(&self, sender: Address, blob_gas: u64, blob_base_fee: u128) -> U256 {
-        self.checked_max_cost(sender, blob_gas, blob_base_fee)
+    pub fn max_cost(
+        &self,
+        sender: Address,
+        blob_gas: u64,
+        blob_base_fee: u128,
+        base_fee: u128,
+    ) -> U256 {
+        self.checked_max_cost(sender, blob_gas, blob_base_fee, base_fee)
             .expect("EIP-8141 maximum cost must be validated before execution")
     }
 
@@ -272,8 +308,9 @@ impl FrameTransaction {
         gas_params: &GasParams,
         blob_gas: u64,
         blob_base_fee: u128,
+        base_fee: u128,
     ) -> U256 {
-        self.checked_max_cost_with_params(sender, gas_params, blob_gas, blob_base_fee)
+        self.checked_max_cost_with_params(sender, gas_params, blob_gas, blob_base_fee, base_fee)
             .expect("EIP-8141 maximum cost must be validated before execution")
     }
 }
@@ -302,7 +339,7 @@ mod tests {
             for count in [0, 1, 2, 16] {
                 let mut tx = baseline.clone();
                 tx.nonce_keys = Some(if count == 0 {
-                    vec![U256::ZERO]
+                    vec![]
                 } else {
                     (1..=count).map(U256::from).collect()
                 });
@@ -369,24 +406,40 @@ mod tests {
 
         // Two zero bytes and two non-zero bytes are ten standard calldata tokens.
         // Arbitrary signatures carry the fixed protocol-verification charge from EIP-8141.
-        assert_eq!(transaction.calldata_tokens(), 10);
+        assert_eq!(transaction.calldata_tokens(), 13);
         assert_eq!(transaction.signature_verification_gas(), Some(100));
-        assert_eq!(transaction.intrinsic_gas(Address::ZERO), Some(12_615));
+        assert_eq!(transaction.intrinsic_gas(Address::ZERO), Some(12_627));
         assert_eq!(transaction.gas_limit(Address::ZERO), Some(12_831));
         assert_eq!(transaction.calldata_floor_gas(Address::ZERO), Some(12_831));
     }
 
     #[test]
-    fn effective_gas_price_preserves_full_width_fee_caps() {
-        let transaction = FrameTransaction {
-            max_priority_fee_per_gas: U256::from(u128::MAX) + U256::from(2),
-            max_fee_per_gas: U256::from(u128::MAX) + U256::from(3),
+    fn fee_budget_covers_all_resources_and_gasprice_is_a_lower_bound() {
+        let tx = FrameTransaction {
+            max_fee: U256::from(1200),
+            max_priority_fee_per_gas: U256::from(5),
             ..Default::default()
         };
-
         assert_eq!(
-            transaction.effective_gas_price(1),
-            U256::from(u128::MAX) + U256::from(3)
+            tx.fee_budget(100, 10, 2, 7),
+            Some((U256::from(1014), U256::from(186)))
         );
+        assert_eq!(tx.effective_gas_price(100, 10, 2, 7), Some(U256::from(11)));
+        assert!(tx.fee_budget(100, 12, 2, 7).is_none());
+        let full_tip = FrameTransaction {
+            max_fee: U256::from(1514),
+            ..tx.clone()
+        };
+        assert_eq!(
+            full_tip.effective_gas_price(100, 10, 2, 7),
+            Some(U256::from(15))
+        );
+        let huge = FrameTransaction {
+            max_fee: U256::MAX,
+            max_priority_fee_per_gas: U256::MAX,
+            ..Default::default()
+        };
+        let (base, tip) = huge.fee_budget(100, 10, 0, 0).unwrap();
+        assert_eq!(base + tip, U256::MAX);
     }
 }

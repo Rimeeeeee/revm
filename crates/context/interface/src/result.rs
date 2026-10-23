@@ -62,12 +62,17 @@ impl<R, S> ExecResultAndState<R, S> {
 ///
 /// ## Derived values
 ///
-/// - [`tx_gas_used()`](ResultGas::tx_gas_used) = `max(total_gas_spent − refunded, floor_gas)` for standard transactions
-/// - [`frame_tx_gas_used()`](ResultGas::frame_tx_gas_used) = `max(total_gas_spent - refunded - state_gas_spent, floor_gas) + state_gas_spent` for EIP-8141
-/// - [`block_regular_gas_used()`](ResultGas::block_regular_gas_used) = `max(total_gas_spent − state_gas_spent, floor_gas)` for standard transactions
+/// - [`tx_gas_used()`](ResultGas::tx_gas_used) = `max(total_gas_spent − refunded, floor_gas)` for
+///   standard transactions
+/// - [`frame_tx_gas_used()`](ResultGas::frame_tx_gas_used) = `max(total_gas_spent - refunded -
+///   state_gas_spent, floor_gas) + state_gas_spent` for EIP-8141
+/// - [`block_regular_gas_used()`](ResultGas::block_regular_gas_used) = `max(total_gas_spent −
+///   state_gas_spent, floor_gas)` for standard transactions
 /// - [`block_state_gas_used()`](ResultGas::block_state_gas_used) = `state_gas_spent`
-/// - [`spent_sub_refunded()`](ResultGas::spent_sub_refunded) = `total_gas_spent − refunded` (before floor gas check)
-/// - [`final_refunded()`](ResultGas::final_refunded) = `refunded` when floor gas is inactive, `0` when floor gas kicks in
+/// - [`spent_sub_refunded()`](ResultGas::spent_sub_refunded) = `total_gas_spent − refunded` (before
+///   floor gas check)
+/// - [`final_refunded()`](ResultGas::final_refunded) = `refunded` when floor gas is inactive, `0`
+///   when floor gas kicks in
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ResultGas {
@@ -92,7 +97,7 @@ pub struct ResultGas {
 }
 
 impl ResultGas {
-    /****** Constructor functions *****/
+    /****** Constructor functions **** */
 
     /// Creates a new `ResultGas`.
     #[inline]
@@ -125,7 +130,7 @@ impl ResultGas {
         }
     }
 
-    /****** Simple getters *****/
+    /****** Simple getters **** */
 
     /// Returns the total gas spent inside execution before any refund.
     ///
@@ -173,7 +178,7 @@ impl ResultGas {
         self.total_gas_spent()
     }
 
-    /****** Simple setters *****/
+    /****** Simple setters **** */
 
     /// Sets the `total_gas_spent` field by mutable reference.
     #[inline]
@@ -211,7 +216,7 @@ impl ResultGas {
         self.total_gas_spent = spent;
     }
 
-    /****** Builder with_* methods *****/
+    /****** Builder with_* methods **** */
 
     /// Sets the `total_gas_spent` field.
     #[inline]
@@ -439,7 +444,7 @@ pub enum ExecutionResult<HaltReasonTy = HaltReason> {
     },
     /// EIP-8141 frame transaction.
     FrameTransaction {
-        /// Whether transaction execution succeeded. A failed EIP-7906 POST_TX
+        /// Whether transaction execution succeeded. A failed EIP-7906 ASSERT
         /// assertion keeps the transaction valid but produces a failed receipt.
         success: bool,
         /// Aggregate transaction gas accounting.
@@ -470,7 +475,8 @@ impl<HaltReasonTy> ExecutionResult<HaltReasonTy> {
         }
     }
 
-    /// Maps a `DBError` to a new error type using the provided closure, leaving other variants unchanged.
+    /// Maps a `DBError` to a new error type using the provided closure, leaving other variants
+    /// unchanged.
     pub fn map_haltreason<F, OHR>(self, op: F) -> ExecutionResult<OHR>
     where
         F: FnOnce(HaltReasonTy) -> OHR,
@@ -809,13 +815,15 @@ pub enum EVMError<DBError, TransactionError = InvalidTransaction> {
     Database(DBError),
     /// Custom error for non-standard EVM failures.
     ///
-    /// This includes fatal precompile errors (`PrecompileError::Fatal` and `PrecompileError::FatalAny`)
-    /// errors as well as any custom errors returned by handler registers.
+    /// This includes fatal precompile errors (`PrecompileError::Fatal` and
+    /// `PrecompileError::FatalAny`) errors as well as any custom errors returned by handler
+    /// registers.
     Custom(String),
     /// Custom error for non-standard EVM failures.
     ///
-    /// This includes fatal precompile errors (`PrecompileError::Fatal` and `PrecompileError::FatalAny`)
-    /// errors as well as any custom errors returned by handler registers.
+    /// This includes fatal precompile errors (`PrecompileError::Fatal` and
+    /// `PrecompileError::FatalAny`) errors as well as any custom errors returned by handler
+    /// registers.
     CustomAny(AnyError),
 }
 
@@ -855,7 +863,8 @@ impl<DB, TXE: From<InvalidTransaction>> From<InvalidTransaction> for EVMError<DB
 }
 
 impl<DBError, TransactionValidationErrorT> EVMError<DBError, TransactionValidationErrorT> {
-    /// Maps a `DBError` to a new error type using the provided closure, leaving other variants unchanged.
+    /// Maps a `DBError` to a new error type using the provided closure, leaving other variants
+    /// unchanged.
     pub fn map_db_err<F, E>(self, op: F) -> EVMError<E, TransactionValidationErrorT>
     where
         F: FnOnce(DBError) -> E,
@@ -916,9 +925,12 @@ impl<DBError, TransactionValidationErrorT> From<InvalidHeader>
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum InvalidTransaction {
-    /// When using the EIP-1559 fee model introduced in the London upgrade, transactions specify two primary fee fields:
-    /// - `gas_max_fee`: The maximum total fee a user is willing to pay, inclusive of both base fee and priority fee.
-    /// - `gas_priority_fee`: The extra amount a user is willing to give directly to the miner, often referred to as the "tip".
+    /// When using the EIP-1559 fee model introduced in the London upgrade, transactions specify
+    /// two primary fee fields:
+    /// - `gas_max_fee`: The maximum total fee a user is willing to pay, inclusive of both base fee
+    ///   and priority fee.
+    /// - `gas_priority_fee`: The extra amount a user is willing to give directly to the miner,
+    ///   often referred to as the "tip".
     ///
     /// Provided `gas_priority_fee` exceeds the total `gas_max_fee`.
     PriorityFeeGreaterThanMaxFee,
@@ -949,7 +961,8 @@ pub enum InvalidTransaction {
     },
     /// EIP-3607 Reject transactions from senders with deployed code
     RejectCallerWithCode,
-    /// Transaction account does not have enough amount of ether to cover transferred value and gas_limit*gas_price.
+    /// Transaction account does not have enough amount of ether to cover transferred value and
+    /// gas_limit*gas_price.
     LackOfFundForMaxFee {
         /// Fee for the transaction.
         fee: Box<U256>,
@@ -991,7 +1004,8 @@ pub enum InvalidTransaction {
     AccessListNotSupported,
     /// `max_fee_per_blob_gas` is not supported for blocks before the Cancun hardfork.
     MaxFeePerBlobGasNotSupported,
-    /// `blob_hashes`/`blob_versioned_hashes` is not supported for blocks before the Cancun hardfork.
+    /// `blob_hashes`/`blob_versioned_hashes` is not supported for blocks before the Cancun
+    /// hardfork.
     BlobVersionedHashesNotSupported,
     /// Block `blob_gas_price` is greater than tx-specified `max_fee_per_blob_gas` after Cancun.
     BlobGasPriceGreaterThanMax {
@@ -1284,8 +1298,8 @@ pub enum OutOfGasError {
     Memory,
     /// Precompile threw OOG error
     Precompile,
-    /// When performing something that takes a U256 and casts down to a u64, if its too large this would fire
-    /// i.e. in `as_usize_or_fail`
+    /// When performing something that takes a U256 and casts down to a u64, if its too large this
+    /// would fire i.e. in `as_usize_or_fail`
     InvalidOperand,
     /// When performing SSTORE the gasleft is less than or equal to 2300
     ReentrancySentry,

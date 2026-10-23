@@ -36,7 +36,8 @@ pub enum LoadError {
 ///
 /// This trait is implemented for all types that have `ContextTr` trait.
 ///
-/// There are few groups of functions which are Block, Transaction, Config, Database and Journal functions.
+/// There are few groups of functions which are Block, Transaction, Config, Database and Journal
+/// functions.
 #[auto_impl(&mut, Box)]
 pub trait Host {
     /* Block */
@@ -64,7 +65,8 @@ pub trait Host {
 
     /* Transaction */
 
-    /// Transaction effective gas price, calls `ContextTr::tx().effective_gas_price(basefee as u128)`
+    /// Returns the gas price exposed to EVM execution. For frame transactions this is the
+    /// fixed, budget-derived lower bound on the execution gas price.
     fn effective_gas_price(&self) -> U256;
     /// Transaction caller, calls `ContextTr::tx().caller()`
     fn caller(&self) -> Address;
@@ -100,31 +102,17 @@ pub trait Host {
         None
     }
 
-    /// Returns whether the active EIP-8141 frame is an EIP-7906 `POST_TX` frame.
-    fn is_post_tx_frame(&self) -> bool {
+    /// Returns whether the active EIP-8141 frame is an EIP-7906 `ASSERT` frame.
+    fn is_assertion_frame(&self) -> bool {
         false
     }
 
-    /// Returns one EIP-7906 `TXTRACE` value for the active `POST_TX` frame.
+    /// Returns one EIP-7906 `TXTRACE` value for the active `ASSERT` frame.
     fn txtrace(&self, _param: U256, _index: U256) -> Option<U256> {
         None
     }
 
-    /// Returns one EIP-7906 `TXDIFF` value for the active `POST_TX` frame.
-    ///
-    /// `skip_cold_load` prevents a cold state read when the interpreter cannot
-    /// pay its EIP-2929 surcharge.
-    fn txdiff(
-        &mut self,
-        _param: U256,
-        _in2: U256,
-        _in3: U256,
-        _skip_cold_load: bool,
-    ) -> Result<StateLoad<U256>, FrameHostError> {
-        Err(FrameHostError::Invalid)
-    }
-
-    /// Returns one EIP-7906 event's non-indexed data for the active `POST_TX` frame.
+    /// Returns one EIP-7906 event's non-indexed data for the active `ASSERT` frame.
     fn event_data(&self, _event_index: U256) -> Option<Bytes> {
         None
     }
@@ -195,7 +183,8 @@ pub trait Host {
     /// Log, calls `ContextTr::journal_mut().log(log)`
     fn log(&mut self, log: Log);
 
-    /// Sstore with optional fetch from database. Return none if the value is cold or if there is db error.
+    /// Sstore with optional fetch from database. Return none if the value is cold or if there is db
+    /// error.
     fn sstore_skip_cold_load(
         &mut self,
         address: Address,
@@ -214,7 +203,8 @@ pub trait Host {
         self.sstore_skip_cold_load(address, key, value, false).ok()
     }
 
-    /// Sload with optional fetch from database. Return none if the value is cold or if there is db error.
+    /// Sload with optional fetch from database. Return none if the value is cold or if there is db
+    /// error.
     fn sload_skip_cold_load(
         &mut self,
         address: Address,
@@ -235,10 +225,11 @@ pub trait Host {
 
     /// Main function to load account info.
     ///
-    /// If load_code is true, it will load the code fetching it from the database if not done before.
+    /// If load_code is true, it will load the code fetching it from the database if not done
+    /// before.
     ///
-    /// If skip_cold_load is true, it will not load the account if it is cold. This is needed to short circuit
-    /// the load if there is not enough gas.
+    /// If skip_cold_load is true, it will not load the account if it is cold. This is needed to
+    /// short circuit the load if there is not enough gas.
     ///
     /// Returns AccountInfo, is_cold and is_empty.
     fn load_account_info_skip_cold_load(
@@ -282,7 +273,8 @@ pub trait Host {
         Some(account_load)
     }
 
-    /// Load account code, calls [`Host::load_account_info_skip_cold_load`] with `load_code` set to false.
+    /// Load account code, calls [`Host::load_account_info_skip_cold_load`] with `load_code` set to
+    /// false.
     #[inline]
     fn load_account_code(&mut self, address: Address) -> Option<StateLoad<Bytes>> {
         self.load_account_info_skip_cold_load(address, true, false)
@@ -297,7 +289,8 @@ pub trait Host {
             })
     }
 
-    /// Load account code hash, calls [`Host::load_account_info_skip_cold_load`] with `load_code` set to false.
+    /// Load account code hash, calls [`Host::load_account_info_skip_cold_load`] with `load_code`
+    /// set to false.
     #[inline]
     fn load_account_code_hash(&mut self, address: Address) -> Option<StateLoad<B256>> {
         self.load_account_info_skip_cold_load(address, false, false)

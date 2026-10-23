@@ -1,4 +1,5 @@
-//! EVM opcode definitions and utilities. It contains opcode information and utilities to work with opcodes.
+//! EVM opcode definitions and utilities. It contains opcode information and utilities to work with
+//! opcodes.
 
 #[cfg(feature = "parse")]
 pub mod parse;
@@ -395,8 +396,8 @@ macro_rules! stringify_with_cb {
 
 // When adding new opcodes:
 // 1. add the opcode to the list below; make sure it's sorted by opcode value
-// 2. implement the opcode in the corresponding module;
-//    the function signature must be the exact same as the others
+// 2. implement the opcode in the corresponding module; the function signature must be the exact
+//    same as the others
 opcodes! {
     0x00 => STOP     => stack_io(0, 0), terminating;
     0x01 => ADD      => stack_io(2, 1);
@@ -587,8 +588,7 @@ opcodes! {
     0xB4 => SIGPARAM => stack_io(2, 1);
     0xB5 => SIGDATACOPY => stack_io(4, 0);
     0xB6 => TXTRACE => stack_io(2, 1);
-    0xB7 => TXDIFF => stack_io(3, 1);
-    0xB8 => EVENTDATACOPY => stack_io(4, 0);
+    0xB7 => EVENTDATACOPY => stack_io(4, 0);
     // 0xB9
     // 0xBA
     // 0xBB
@@ -716,7 +716,7 @@ mod tests {
             0xa0..=0xa4,
             0xaa..=0xaa,
             0xb0..=0xb5,
-            0xb6..=0xb8,
+            0xb6..=0xb7,
             0xf0..=0xf5,
             0xfa..=0xfa,
             0xfd..=0xfd,
@@ -736,7 +736,7 @@ mod tests {
         for _ in OPCODE_INFO.into_iter().flatten() {
             opcode_num += 1;
         }
-        assert_eq!(opcode_num, 164);
+        assert_eq!(opcode_num, 163);
     }
 
     #[test]
