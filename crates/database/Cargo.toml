@@ -29,6 +29,7 @@ either.workspace = true
 serde = { workspace = true, features = ["derive", "rc"], optional = true }
 
 # alloydb
+alloy-consensus = { workspace = true, optional = true }
 tokio = { workspace = true, features = [
 	"rt-multi-thread",
 	"macros",
@@ -66,6 +67,7 @@ alloydb = [
 	"std",
 	"database-interface/asyncdb",
 	"dep:tokio",
+	"dep:alloy-consensus",
 	"dep:alloy-provider",
 	"dep:alloy-eips",
 	"dep:alloy-transport",

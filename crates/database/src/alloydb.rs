@@ -1,5 +1,6 @@
 //! Alloy provider database implementation.
 
+use alloy_consensus::BlockHeader;
 pub use alloy_eips::BlockId;
 use alloy_provider::{
     network::{primitives::HeaderResponse, BlockResponse},
@@ -81,6 +82,14 @@ impl<N: Network, P: Provider<N>> AlloyDB<N, P> {
 
 impl<N: Network, P: Provider<N>> DatabaseAsyncRef for AlloyDB<N, P> {
     type Error = AlloyDBError;
+
+    async fn block_timestamp_async_ref(&self, number: u64) -> Result<Option<u64>, Self::Error> {
+        Ok(self
+            .provider
+            .get_block_by_number(number.into())
+            .await?
+            .map(|block| block.header().timestamp()))
+    }
 
     async fn basic_async_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
         let nonce = self

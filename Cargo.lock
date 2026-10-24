@@ -4090,6 +4090,7 @@ dependencies = [
 name = "revm-database"
 version = "43.0.0"
 dependencies = [
+ "alloy-consensus",
  "alloy-eips",
  "alloy-provider",
  "alloy-transport",
