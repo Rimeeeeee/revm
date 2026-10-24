@@ -722,15 +722,13 @@ impl EthFrame<EthInterpreter> {
 /// child's regular gas.
 ///
 /// Then the parent *merges* the settled child:
-/// - unused regular gas (`remaining`, including any spill returned on revert)
-///   flows back to the parent on success or revert; a halt consumes it.
-/// - the reservoir, a shared state-gas pool the child inherited at call time, is
-///   always adopted from the child (restored to the inherited value on
-///   revert/halt). Any returned reservoir first unwinds the parent's outstanding
-///   spilled state gas in LIFO order.
-/// - net state gas, its spilled portion, and the refund counter persist only on
-///   success; on revert/halt the child's state changes roll back and contribute
-///   nothing.
+/// - unused regular gas (`remaining`, including any spill returned on revert) flows back to the
+///   parent on success or revert; a halt consumes it.
+/// - the reservoir, a shared state-gas pool the child inherited at call time, is always adopted
+///   from the child (restored to the inherited value on revert/halt). Any returned reservoir first
+///   unwinds the parent's outstanding spilled state gas in LIFO order.
+/// - net state gas, its spilled portion, and the refund counter persist only on success; on
+///   revert/halt the child's state changes roll back and contribute nothing.
 #[inline]
 pub const fn handle_reservoir_remaining_gas(
     instruction_result: InstructionResult,
@@ -797,6 +795,23 @@ pub fn return_create<CTX: ContextTr>(
         return;
     }
 
+    if spec_id.is_enabled_in(SpecId::BOGOTA) {
+        let adopted_code = journal
+            .load_account_with_code(address)
+            .expect("created account is loaded")
+            .info
+            .clone();
+        if adopted_code.code_hash != primitives::KECCAK_EMPTY {
+            interpreter_result.output = adopted_code
+                .code
+                .expect("created code is loaded")
+                .original_bytes();
+            journal.checkpoint_commit();
+            interpreter_result.result = InstructionResult::Return;
+            return;
+        }
+    }
+
     // EIP-170: Contract code size limit to 0x6000 (~25kb)
     // EIP-7954 increased this limit to 0x10000 (64kb).
     // This must be checked BEFORE charging state gas for code deposit,
@@ -852,8 +867,8 @@ pub fn return_create<CTX: ContextTr>(
         // State gas for code deposit (EIP-8037).
         // Charged after size check: only code that passes validation incurs state gas cost.
         //
-        // Note: This should be last operation before checkpoint commit as spending state before this messes
-        // with refilling of state gas.
+        // Note: This should be last operation before checkpoint commit as spending state before
+        // this messes with refilling of state gas.
         let state_gas_for_code = gas_params.code_deposit_state_gas(interpreter_result.output.len());
         if state_gas_for_code > 0 && !interpreter_result.gas.record_state_cost(state_gas_for_code) {
             journal.checkpoint_revert(checkpoint);

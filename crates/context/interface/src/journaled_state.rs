@@ -301,6 +301,11 @@ pub trait JournalTr {
     /// Sets bytecode with hash. Assume that account is warm.
     fn set_code_with_hash(&mut self, address: Address, code: Bytecode, hash: B256);
 
+    /// Installs existing code through EIP-8298, preserving its BAL provenance.
+    fn adopt_code_with_hash(&mut self, address: Address, code: Bytecode, hash: B256) {
+        self.set_code_with_hash(address, code, hash);
+    }
+
     /// Sets bytecode and calculates hash.
     ///
     /// Assume account is warm.

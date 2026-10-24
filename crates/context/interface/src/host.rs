@@ -172,6 +172,17 @@ pub trait Host {
 
     /* Journal */
 
+    /// Adopts a valid source's raw code, charging all access and write gas before mutation.
+    /// Returns whether the source is valid and the execution gas consumed.
+    fn set_code_from(
+        &mut self,
+        _address: Address,
+        _source: Address,
+        _gas_limit: u64,
+    ) -> Result<(bool, u64), FrameHostError> {
+        Err(FrameHostError::Invalid)
+    }
+
     /// Selfdestruct account, calls `ContextTr::journal_mut().selfdestruct(address, target)`
     fn selfdestruct(
         &mut self,

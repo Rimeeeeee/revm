@@ -304,6 +304,7 @@ const fn instruction_table_impl<WIRE: InterpreterTypes, H: Host>() -> Instructio
     table[LOG2 as usize] = Instruction::new(host::log::<2, _>);
     table[LOG3 as usize] = Instruction::new(host::log::<3, _>);
     table[LOG4 as usize] = Instruction::new(host::log::<4, _>);
+    table[SETCODEFROM as usize] = Instruction::new(host::setcodefrom);
 
     table[APPROVE as usize] = Instruction::new(frame::approve);
     table[TXPARAM as usize] = Instruction::new(frame::txparam);

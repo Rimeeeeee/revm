@@ -302,6 +302,11 @@ impl<DB: Database> State<DB> {
 }
 
 impl<DB: Database> Database for State<DB> {
+    fn block_timestamp(&mut self, number: u64) -> Result<Option<u64>, Self::Error> {
+        self.database
+            .block_timestamp(number)
+            .map_err(EvmDatabaseError::Database)
+    }
     type Error = EvmDatabaseError<DB::Error>;
 
     fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
@@ -460,6 +465,11 @@ impl<DB: Database> DatabaseCommit for State<DB> {
 }
 
 impl<DB: DatabaseRef> DatabaseRef for State<DB> {
+    fn block_timestamp_ref(&self, number: u64) -> Result<Option<u64>, Self::Error> {
+        self.database
+            .block_timestamp_ref(number)
+            .map_err(EvmDatabaseError::Database)
+    }
     type Error = EvmDatabaseError<DB::Error>;
 
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
@@ -650,9 +660,9 @@ mod tests {
     /// Checks that if accounts is touched multiple times in the same block,
     /// then the old values from the first change are preserved and not overwritten.
     ///
-    /// This is important because the state transitions from different transactions in the same block may see
-    /// different states of the same account as the old value, but the revert should reflect the
-    /// state of the account before the block.
+    /// This is important because the state transitions from different transactions in the same
+    /// block may see different states of the same account as the old value, but the revert
+    /// should reflect the state of the account before the block.
     #[test]
     fn reverts_preserve_old_values() {
         let mut state = State::builder().with_bundle_update().build();
@@ -664,7 +674,8 @@ mod tests {
         );
 
         // Non-existing account for testing account state transitions.
-        // [LoadedNotExisting] -> [Changed] (nonce: 1, balance: 1) -> [Changed] (nonce: 2) -> [Changed] (nonce: 3)
+        // [LoadedNotExisting] -> [Changed] (nonce: 1, balance: 1) -> [Changed] (nonce: 2) ->
+        // [Changed] (nonce: 3)
         let new_account_address = Address::from_slice(&[0x1; 20]);
         let new_account_created_info = AccountInfo {
             nonce: 1,
@@ -740,7 +751,8 @@ mod tests {
             },
         )]));
 
-        // Another transaction in block 1 then changes the newly created account yet again and modifies the storage in an existing one.
+        // Another transaction in block 1 then changes the newly created account yet again and
+        // modifies the storage in an existing one.
         state.apply_transition(Vec::from([
             (
                 new_account_address,
@@ -847,8 +859,8 @@ mod tests {
             "The account or storage reverts are incorrect"
         );
 
-        // The latest state of the new account should be: nonce = 3, balance = 1, code & code hash = None.
-        // Storage: 0x01 = 1.
+        // The latest state of the new account should be: nonce = 3, balance = 1, code & code hash =
+        // None. Storage: 0x01 = 1.
         assert_eq!(
             bundle_state.account(&new_account_address),
             Some(&BundleAccount {

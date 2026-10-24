@@ -55,7 +55,7 @@ pub use mainnet_builder::{MainBuilder, MainContext, MainnetContext, MainnetEvm};
 pub use mainnet_handler::MainnetHandler;
 pub use pre_execution::PreExecutionOutput;
 pub use precompile_provider::{
-    precompile_output_to_interpreter_result, EthPrecompiles, PrecompileProvider,
+    apply_eip8151, precompile_output_to_interpreter_result, EthPrecompiles, PrecompileProvider,
 };
 #[cfg(feature = "asyncdb")]
 pub use system_call::SystemCallEvmAsync;

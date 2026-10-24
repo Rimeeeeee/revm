@@ -79,7 +79,8 @@ pub trait Database {
     /// Gets storage value of account by its id. By default call [`Database::storage`] method.
     ///
     /// If basic account sets account_id inside [`AccountInfo::account_id`], evm will call this
-    /// function with that given account_id. This can be useful if IndexMap is used to get faster access to the account.
+    /// function with that given account_id. This can be useful if IndexMap is used to get faster
+    /// access to the account.
     #[inline]
     fn storage_by_account_id(
         &mut self,
@@ -93,6 +94,11 @@ pub trait Database {
 
     /// Gets block hash by block number.
     fn block_hash(&mut self, number: u64) -> Result<B256, Self::Error>;
+
+    /// Returns a canonical ancestor's timestamp for fork-boundary state transitions.
+    fn block_timestamp(&mut self, _number: u64) -> Result<Option<u64>, Self::Error> {
+        Ok(None)
+    }
 }
 
 /// EVM database commit interface.
@@ -110,7 +116,8 @@ pub trait DatabaseCommit {
     ///
     /// Implementors of [`DatabaseCommit`] should override this method when possible for efficiency.
     ///
-    /// Callers should prefer using [`DatabaseCommit::commit`] when they already have a [`AddressMap`].
+    /// Callers should prefer using [`DatabaseCommit::commit`] when they already have a
+    /// [`AddressMap`].
     ///
     /// # Dyn Compatibility
     ///
@@ -175,6 +182,11 @@ pub trait DatabaseRef {
 
     /// Gets block hash by block number.
     fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error>;
+
+    /// Returns a canonical ancestor's timestamp for fork-boundary state transitions.
+    fn block_timestamp_ref(&self, _number: u64) -> Result<Option<u64>, Self::Error> {
+        Ok(None)
+    }
 }
 
 /// Wraps a [`DatabaseRef`] to provide a [`Database`] implementation.
@@ -189,6 +201,9 @@ impl<F: DatabaseRef> From<F> for WrapDatabaseRef<F> {
 }
 
 impl<T: DatabaseRef> Database for WrapDatabaseRef<T> {
+    fn block_timestamp(&mut self, number: u64) -> Result<Option<u64>, Self::Error> {
+        self.0.block_timestamp_ref(number)
+    }
     type Error = T::Error;
 
     #[inline]
@@ -240,6 +255,9 @@ impl<T: DatabaseRef + DatabaseCommit> DatabaseCommit for WrapDatabaseRef<T> {
 }
 
 impl<T: DatabaseRef> DatabaseRef for WrapDatabaseRef<T> {
+    fn block_timestamp_ref(&self, number: u64) -> Result<Option<u64>, Self::Error> {
+        self.0.block_timestamp_ref(number)
+    }
     type Error = T::Error;
 
     #[inline]

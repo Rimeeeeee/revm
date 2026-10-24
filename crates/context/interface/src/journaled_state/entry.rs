@@ -2,8 +2,8 @@
 //!
 //! Journal entries are used to track changes to the state and are used to revert it.
 //!
-//! They are created when there is change to the state from loading (making it warm), changes to the balance,
-//! or removal of the storage slot. Check [`JournalEntryTr`] for more details.
+//! They are created when there is change to the state from loading (making it warm), changes to the
+//! balance, or removal of the storage slot. Check [`JournalEntryTr`] for more details.
 
 use primitives::{Address, StorageKey, StorageValue, B256, PRECOMPILE3, U256};
 use state::{Bytecode, EvmState, TransientStorage};
@@ -11,7 +11,8 @@ use state::{Bytecode, EvmState, TransientStorage};
 /// Trait for tracking and reverting state changes in the EVM.
 /// Journal entry contains information about state changes that can be reverted.
 pub trait JournalEntryTr {
-    /// Creates a journal entry for when an account is accessed and marked as "warm" for gas metering
+    /// Creates a journal entry for when an account is accessed and marked as "warm" for gas
+    /// metering
     fn account_warmed(address: Address) -> Self;
 
     /// Creates a journal entry for when an account is destroyed via SELFDESTRUCT
@@ -25,8 +26,9 @@ pub trait JournalEntryTr {
         had_balance: U256,
     ) -> Self;
 
-    /// Creates a journal entry for when an account is "touched" - accessed in a way that may require saving it.
-    /// If account is empty and touch it will be removed from the state (EIP-161 state clear EIP)
+    /// Creates a journal entry for when an account is "touched" - accessed in a way that may
+    /// require saving it. If account is empty and touch it will be removed from the state
+    /// (EIP-161 state clear EIP)
     fn account_touched(address: Address) -> Self;
 
     /// Creates a journal entry for a balance transfer between accounts
@@ -48,8 +50,8 @@ pub trait JournalEntryTr {
     /// Records the previous value for reverting
     fn storage_changed(address: Address, key: StorageKey, had_value: StorageValue) -> Self;
 
-    /// Creates a journal entry for when a storage slot is accessed and marked as "warm" for gas metering
-    /// This is called with SLOAD opcode.
+    /// Creates a journal entry for when a storage slot is accessed and marked as "warm" for gas
+    /// metering This is called with SLOAD opcode.
     fn storage_warmed(address: Address, key: StorageKey) -> Self;
 
     /// Creates a journal entry for when a transient storage slot is modified (EIP-1153)
@@ -67,6 +69,9 @@ pub trait JournalEntryTr {
     /// the change reverted), so the revert cannot assume the previous code was
     /// empty.
     fn code_changed(address: Address, had_code_hash: B256, had_code: Option<Bytecode>) -> Self;
+
+    /// Records the previous EIP-8298 code-adoption provenance for revert.
+    fn code_adoption_changed(address: Address, was_adopted: bool) -> Self;
 
     /// Reverts the state change recorded by this journal entry
     ///
@@ -101,7 +106,8 @@ pub trait JournalEntryTr {
 ///
 /// Locally selfdesturction that selfdestruct is called for first time in one transaction scope.
 ///
-/// Repeated selfdestruction means local selfdesturction was already called in one transaction scope.
+/// Repeated selfdestruction means local selfdesturction was already called in one transaction
+/// scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SelfdestructionRevertStatus {
@@ -138,8 +144,8 @@ pub enum JournalEntry {
         destroyed_status: SelfdestructionRevertStatus,
     },
     /// Loading account does not mean that account will need to be added to MerkleTree (touched).
-    /// Only when account is called (to execute contract or transfer balance) only then account is made touched.
-    /// Action: Mark account touched
+    /// Only when account is called (to execute contract or transfer balance) only then account is
+    /// made touched. Action: Mark account touched
     /// Revert: Unmark account touched
     AccountTouched {
         /// Address of account that is touched.
@@ -224,6 +230,13 @@ pub enum JournalEntry {
         /// Address of account that had its transient storage changed.
         address: Address,
     },
+    /// The provenance of a code change was updated.
+    CodeAdoptionChange {
+        /// Account whose code was updated.
+        address: Address,
+        /// Whether the previous code update was an adoption.
+        was_adopted: bool,
+    },
     /// Code changed
     /// Action: Account code changed
     /// Revert: Revert to previous bytecode.
@@ -238,6 +251,12 @@ pub enum JournalEntry {
 }
 
 impl JournalEntryTr for JournalEntry {
+    fn code_adoption_changed(address: Address, was_adopted: bool) -> Self {
+        Self::CodeAdoptionChange {
+            address,
+            was_adopted,
+        }
+    }
     fn account_warmed(address: Address) -> Self {
         JournalEntry::AccountWarmed { address }
     }
@@ -374,7 +393,8 @@ impl JournalEntryTr for JournalEntry {
                 account.info.balance = old_balance;
             }
             JournalEntry::BalanceTransfer { from, to, balance } => {
-                // we don't need to check overflow and underflow when adding and subtracting the balance.
+                // we don't need to check overflow and underflow when adding and subtracting the
+                // balance.
                 let from = state.get_mut(&from).unwrap();
                 from.info.balance += balance;
                 let to = state.get_mut(&to).unwrap();
@@ -448,6 +468,16 @@ impl JournalEntryTr for JournalEntry {
                 let acc = state.get_mut(&address).unwrap();
                 acc.info.code_hash = had_code_hash;
                 acc.info.code = had_code;
+            }
+            JournalEntry::CodeAdoptionChange {
+                address,
+                was_adopted,
+            } => {
+                state
+                    .get_mut(&address)
+                    .unwrap()
+                    .status
+                    .set(state::AccountStatus::CodeAdopted, was_adopted);
             }
         }
     }

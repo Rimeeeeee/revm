@@ -1,4 +1,5 @@
-/// AccountStatus represents the various states an account can be in after being loaded from the database.
+/// AccountStatus represents the various states an account can be in after being loaded from the
+/// database.
 ///
 /// After account get loaded from database it can be in a lot of different states
 /// while we execute multiple transaction and even blocks over account that is in memory.
@@ -110,25 +111,14 @@ impl AccountStatus {
     }
 
     /// Returns the next account status on change.
-    pub const fn on_changed(&self, had_no_nonce_and_code: bool) -> Self {
+    pub const fn on_changed(&self, _had_no_nonce_and_code: bool) -> Self {
         match self {
             // If the account was loaded as not existing, promote it to changed.
             // This account was likely created by a balance transfer.
             Self::LoadedNotExisting => Self::InMemoryChange,
-            // Change on empty account, should transfer storage if there is any.
-            // There is possibility that there are storage entries inside db.
-            // That storage is used in merkle tree calculation before state clear EIP.
-            Self::LoadedEmptyEIP161 => Self::InMemoryChange,
-            // The account was loaded as existing.
-            Self::Loaded => {
-                if had_no_nonce_and_code {
-                    // Account is fully in memory
-                    Self::InMemoryChange
-                } else {
-                    // Can be contract and some of storage slots can be present inside db.
-                    Self::Changed
-                }
-            }
+            // Pre-EIP-161 accounts can have storage despite empty code and zero nonce.
+            // An info-only update (including EIP-8253) does not make that storage known.
+            Self::LoadedEmptyEIP161 | Self::Loaded => Self::Changed,
 
             // On change, the "changed" type account statuses are preserved.
             // Any checks for empty accounts are done outside of this fn.
@@ -147,9 +137,9 @@ impl AccountStatus {
         match self {
             // Non existing account can't be destroyed.
             Self::LoadedNotExisting => Self::LoadedNotExisting,
-            // If account is created and selfdestructed in the same block, mark it as destroyed again.
-            // Note: There is no big difference between Destroyed and DestroyedAgain in this case,
-            // but was added for clarity.
+            // If account is created and selfdestructed in the same block, mark it as destroyed
+            // again. Note: There is no big difference between Destroyed and
+            // DestroyedAgain in this case, but was added for clarity.
             Self::DestroyedChanged | Self::DestroyedAgain | Self::Destroyed => Self::DestroyedAgain,
 
             // Transition to destroyed status.
@@ -161,14 +151,14 @@ impl AccountStatus {
     ///
     /// It this account was Destroyed and other account is not:
     /// - We should mark extended account as destroyed too.
-    /// - And as other account had some changes, extended account
-    ///   should be marked as DestroyedChanged.
+    /// - And as other account had some changes, extended account should be marked as
+    ///   DestroyedChanged.
     ///
     /// If both account are not destroyed and if this account is in memory:
     /// - This means that extended account is in memory too.
     ///
     /// Otherwise, if both are destroyed or other is destroyed:
-    /// -  Sets other status to extended account.
+    /// - Sets other status to extended account.
     pub fn transition(&mut self, other: Self) {
         *self = match (self.was_destroyed(), other.was_destroyed()) {
             (true, false) => Self::DestroyedChanged,
@@ -312,16 +302,16 @@ mod test {
 
         assert_eq!(
             AccountStatus::LoadedEmptyEIP161.on_changed(true),
-            AccountStatus::InMemoryChange
+            AccountStatus::Changed
         );
         assert_eq!(
             AccountStatus::LoadedEmptyEIP161.on_changed(false),
-            AccountStatus::InMemoryChange
+            AccountStatus::Changed
         );
 
         assert_eq!(
             AccountStatus::Loaded.on_changed(true),
-            AccountStatus::InMemoryChange
+            AccountStatus::Changed
         );
         assert_eq!(
             AccountStatus::Loaded.on_changed(false),

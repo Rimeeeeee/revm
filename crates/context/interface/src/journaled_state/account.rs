@@ -1,7 +1,8 @@
-//! This module contains [`JournaledAccount`] struct a wrapper around account and journal entries that
-//! allow updates to the account and journal entries.
+//! This module contains [`JournaledAccount`] struct a wrapper around account and journal entries
+//! that allow updates to the account and journal entries.
 //!
-//! Useful to encapsulate account and journal entries together. So when account gets changed, we can add a journal entry for it.
+//! Useful to encapsulate account and journal entries together. So when account gets changed, we can
+//! add a journal entry for it.
 
 use crate::{
     context::{SStoreResult, StateLoad},
@@ -63,7 +64,8 @@ pub trait JournaledAccountTr {
     /// Changing account without journal entry can be a footgun as reverting of the state change
     /// would not happen without entry. It is the reason why this function has an `unsafe` prefix.
     ///
-    /// If account is in access list, it would still be marked as warm if account get accessed again.
+    /// If account is in access list, it would still be marked as warm if account get accessed
+    /// again.
     fn unsafe_mark_cold(&mut self);
 
     /// Sets the balance of the account.
@@ -120,7 +122,8 @@ pub trait JournaledAccountTr {
 
 /// Journaled account contains both mutable account and journal entries.
 ///
-/// Useful to encapsulate account and journal entries together. So when account gets changed, we can add a journal entry for it.
+/// Useful to encapsulate account and journal entries together. So when account gets changed, we can
+/// add a journal entry for it.
 #[derive(Debug, PartialEq, Eq)]
 pub struct JournaledAccount<'a, DB, ENTRY: JournalEntryTr = JournalEntry> {
     /// Address of the account.
@@ -160,7 +163,8 @@ impl<'a, DB: Database, ENTRY: JournalEntryTr> JournaledAccount<'a, DB, ENTRY> {
 
     /// Loads the storage slot.
     ///
-    /// If storage is cold and skip_cold_load is true, it will return [`JournalLoadError::ColdLoadSkipped`] error.
+    /// If storage is cold and skip_cold_load is true, it will return
+    /// [`JournalLoadError::ColdLoadSkipped`] error.
     ///
     /// Does not erase the db error.
     #[inline(never)]
@@ -227,7 +231,8 @@ impl<'a, DB: Database, ENTRY: JournalEntryTr> JournaledAccount<'a, DB, ENTRY> {
 
     /// Stores the storage slot.
     ///
-    /// If storage is cold and skip_cold_load is true, it will return [`JournalLoadError::ColdLoadSkipped`] error.
+    /// If storage is cold and skip_cold_load is true, it will return
+    /// [`JournalLoadError::ColdLoadSkipped`] error.
     ///
     /// Does not erase the db error.
     #[inline]
@@ -252,7 +257,8 @@ impl<'a, DB: Database, ENTRY: JournalEntryTr> JournaledAccount<'a, DB, ENTRY> {
             slot.is_cold,
         ));
 
-        // when new value is different from present, we need to add a journal entry and make a change.
+        // when new value is different from present, we need to add a journal entry and make a
+        // change.
         if slot.present_value != new {
             let previous_value = slot.present_value;
             // insert value into present state.
@@ -338,7 +344,8 @@ impl<'a, DB: Database, ENTRY: JournalEntryTr> JournaledAccountTr
     /// Changing account without journal entry can be a footgun as reverting of the state change
     /// would not happen without entry. It is the reason why this function has an `unsafe` prefix.
     ///
-    /// If account is in access list, it would still be marked as warm if account get accessed again.
+    /// If account is in access list, it would still be marked as warm if account get accessed
+    /// again.
     #[inline]
     fn unsafe_mark_cold(&mut self) {
         self.account.mark_cold();
@@ -430,6 +437,17 @@ impl<'a, DB: Database, ENTRY: JournalEntryTr> JournaledAccountTr
     #[inline]
     fn set_code(&mut self, code_hash: B256, code: Bytecode) {
         self.touch();
+        if self
+            .account
+            .status
+            .contains(state::AccountStatus::CodeAdopted)
+        {
+            self.journal_entries
+                .push(ENTRY::code_adoption_changed(self.address, true));
+            self.account
+                .status
+                .remove(state::AccountStatus::CodeAdopted);
+        }
         let (had_code_hash, had_code) = self.account.info.set_code_and_hash(code, code_hash);
         self.journal_entries
             .push(ENTRY::code_changed(self.address, had_code_hash, had_code));

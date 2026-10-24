@@ -133,9 +133,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloy-eip7928"
+version = "0.4.11"
+source = "git+https://github.com/Rimeeeeee/eips?branch=bogota-devnet-2#9d9691907176f76e935277ae363c33ee0a4e5e8a"
+dependencies = [
+ "alloy-primitives",
+ "alloy-rlp",
+ "borsh",
+ "once_cell",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "alloy-eip8141"
 version = "0.1.1"
-source = "git+https://github.com/Rimeeeeee/eips?branch=bogota-devnet-2#7aa4a3a765b70798c3f945362d573d6371e74efa"
+source = "git+https://github.com/Rimeeeeee/eips?branch=bogota-devnet-2#9d9691907176f76e935277ae363c33ee0a4e5e8a"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -152,7 +165,7 @@ dependencies = [
  "alloy-eip2124",
  "alloy-eip2930",
  "alloy-eip7702",
- "alloy-eip7928",
+ "alloy-eip7928 0.4.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "alloy-eip8141",
  "alloy-primitives",
  "alloy-rlp",
@@ -372,7 +385,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde",
  "alloy-sol-types",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -517,7 +530,7 @@ source = "git+https://github.com/Rimeeeeee/alloy?rev=68a747fed5e7293135eb53c72f8
 dependencies = [
  "alloy-json-rpc",
  "alloy-transport",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "reqwest",
  "serde_json",
  "tower",
@@ -4209,7 +4222,7 @@ dependencies = [
 name = "revm-state"
 version = "43.0.0"
 dependencies = [
- "alloy-eip7928",
+ "alloy-eip7928 0.4.11 (git+https://github.com/Rimeeeeee/eips?branch=bogota-devnet-2)",
  "bitflags 2.13.2",
  "nonmax",
  "postcard",
@@ -4223,7 +4236,7 @@ dependencies = [
 name = "revm-statetest-types"
 version = "43.0.1"
 dependencies = [
- "alloy-eip7928",
+ "alloy-eip7928 0.4.11 (git+https://github.com/Rimeeeeee/eips?branch=bogota-devnet-2)",
  "k256",
  "revm-context",
  "revm-context-interface",

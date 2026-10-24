@@ -1,8 +1,7 @@
-use crate::InstructionContext as Ictx;
 use crate::{
     instructions::utility::{IntoAddress, IntoU256},
     interpreter_types::{InputsTr, InterpreterTypes as ITy, MemoryTr, RuntimeFlag, StackTr},
-    Gas, Host, InstructionExecResult as Result, InstructionResult,
+    Gas, Host, InstructionContext as Ictx, InstructionExecResult as Result, InstructionResult,
 };
 use context_interface::{
     context::{SStoreResult, StateLoad},
@@ -239,7 +238,8 @@ where
     let spec_id = context.interpreter.runtime_flag.spec_id();
 
     // EIP-2200: Structured Definitions for Net Gas Metering
-    // If gasleft is less than or equal to gas stipend, fail the current call frame with 'out of gas' exception.
+    // If gasleft is less than or equal to gas stipend, fail the current call frame with 'out of
+    // gas' exception.
     if spec_id.is_enabled_in(ISTANBUL)
         && context.interpreter.gas.remaining() <= context.host.gas_params().call_stipend()
     {
@@ -412,9 +412,35 @@ pub fn log<const N: usize, H: Host + ?Sized>(context: Ictx<'_, H, impl ITy>) -> 
     Ok(())
 }
 
-/// Implements the SELFDESTRUCT instruction.
+/// Implements EIP-8298 SETCODEFROM (0xa7).
+pub fn setcodefrom<IT: ITy, H: Host + ?Sized>(context: Ictx<'_, H, IT>) -> Result {
+    check!(context.interpreter, BOGOTA);
+    require_non_staticcall!(context.interpreter);
+    let address = context.interpreter.input.target_address();
+    if primitives::eip8298::is_system_contract(address) {
+        return Err(InstructionResult::OpcodeNotFound);
+    }
+    popn_top!([], top, context.interpreter);
+    let (success, gas_used) = context
+        .host
+        .set_code_from(
+            address,
+            top.into_address(),
+            context.interpreter.gas.remaining(),
+        )
+        .map_err(|error| match error {
+            context_interface::host::FrameHostError::OutOfGas => InstructionResult::OutOfGas,
+            context_interface::host::FrameHostError::Fatal => InstructionResult::FatalExternalError,
+            _ => InstructionResult::OpcodeNotFound,
+        })?;
+    gas!(context.interpreter, gas_used);
+    *top = U256::from(success);
+    Ok(())
+}
+
+/// Implements SELFDESTRUCT, renamed SENDALL by EIP-4758 in Bogota.
 ///
-/// Halt execution and register account for later deletion.
+/// Halts execution and transfers the remaining balance. Earlier forks may also delete the account.
 pub fn selfdestruct<IT: ITy, H: Host + ?Sized>(context: Ictx<'_, H, IT>) -> Result {
     require_non_staticcall!(context.interpreter);
     popn!([target], context.interpreter);

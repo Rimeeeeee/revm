@@ -820,6 +820,70 @@ impl<
 
     /* Journal */
 
+    fn set_code_from(
+        &mut self,
+        address: Address,
+        source: Address,
+        gas_limit: u64,
+    ) -> Result<(bool, u64), FrameHostError> {
+        let warm = self.gas_params().warm_storage_read_cost();
+        let cold = self.gas_params().cold_account_additional_cost();
+        let write = self.gas_params().tx_account_write_cost();
+        let mut gas_used = warm.saturating_mul(2);
+        if gas_limit < gas_used {
+            return Err(FrameHostError::OutOfGas);
+        }
+        let skip_cold = gas_limit - gas_used < cold;
+        let loaded = self
+            .journal_mut()
+            .load_account_mut_skip_cold_load(source, skip_cold)
+            .map(|load| (load.is_cold, load.data.account().is_created_locally()));
+        let (is_cold, is_created) = match loaded {
+            Ok(load) => load,
+            Err(error) => {
+                let (reason, error) = error.into_parts();
+                if let Some(error) = error {
+                    self.error = Err(error.into());
+                }
+                return Err(match reason {
+                    LoadError::ColdLoadSkipped => FrameHostError::OutOfGas,
+                    LoadError::DBError => FrameHostError::Fatal,
+                });
+            }
+        };
+        if is_cold {
+            gas_used += cold;
+        }
+        let source = self
+            .load_account_info_skip_cold_load(source, true, false)
+            .map_err(|_| FrameHostError::Fatal)?;
+        let code = source
+            .code
+            .as_ref()
+            .expect("source code was loaded")
+            .clone();
+        let hash = source.code_hash;
+        if is_created || code.is_empty() || code.original_byte_slice().first() == Some(&0xef) {
+            return Ok((false, gas_used));
+        }
+        gas_used += warm;
+        if gas_limit < gas_used {
+            return Err(FrameHostError::OutOfGas);
+        }
+        let current_hash = self
+            .load_account_info_skip_cold_load(address, false, false)
+            .map_err(|_| FrameHostError::Fatal)?
+            .code_hash;
+        if current_hash != hash {
+            gas_used += write;
+            if gas_limit < gas_used {
+                return Err(FrameHostError::OutOfGas);
+            }
+            self.journal_mut().adopt_code_with_hash(address, code, hash);
+        }
+        Ok((true, gas_used))
+    }
+
     /// Gets the transient storage value of `address` at `index`.
     fn tload(&mut self, address: Address, index: StorageKey) -> StorageValue {
         self.journal_mut().tload(address, index)

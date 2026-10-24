@@ -500,6 +500,19 @@ impl<DB: Database, ENTRY: JournalEntryTr> JournalTr for Journal<DB, ENTRY> {
         self.inner.set_code_with_hash(address, code, hash);
     }
 
+    fn adopt_code_with_hash(&mut self, address: Address, code: Bytecode, hash: B256) {
+        self.set_code_with_hash(address, code, hash);
+        self.inner
+            .journal
+            .push(ENTRY::code_adoption_changed(address, false));
+        self.inner
+            .state
+            .get_mut(&address)
+            .unwrap()
+            .status
+            .insert(state::AccountStatus::CodeAdopted);
+    }
+
     #[inline]
     fn create_account_checkpoint(
         &mut self,

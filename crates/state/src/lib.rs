@@ -62,13 +62,15 @@ impl TransactionId {
     }
 }
 
-/// The main account type used inside Revm. It is stored inside Journal and contains all the information about the account.
+/// The main account type used inside Revm. It is stored inside Journal and contains all the
+/// information about the account.
 ///
 /// Other than standard Account information it contains its status that can be both cold and warm
 /// additional to that it contains BAL that is used to load data for this particular account.
 ///
 /// On loading from database:
-///     * If CompiledBal is present, load values from BAL into Account (Assume account has read data from database)
+///     * If CompiledBal is present, load values from BAL into Account (Assume account has read data
+///       from database)
 ///     * In case of parallel execution, AccountInfo would be same over all parallel executions.
 ///     * Maybe use transaction_id as a way to notify user that this is obsolete data.
 ///     * Database needs to load account and tie to with BAL writes
@@ -115,7 +117,8 @@ impl Account {
 
     /// Make changes to the caller account.
     ///
-    /// It marks the account as touched, changes the balance and bumps the nonce if `is_call` is true.
+    /// It marks the account as touched, changes the balance and bumps the nonce if `is_call` is
+    /// true.
     ///
     /// Returns the old balance.
     #[inline]
@@ -531,6 +534,8 @@ bitflags! {
         /// used to mark account as cold.
         /// It is used only in local scope and it is reset on account loading.
         const Cold = 0b00010000;
+        /// The last code update in this transaction was SETCODEFROM.
+        const CodeAdopted = 0b00100000;
     }
 }
 
@@ -618,7 +623,8 @@ impl EvmStorageSlot {
     /// Marks the storage slot as warm and sets transaction_id to the given value
     ///
     ///
-    /// Returns false if old transition_id is different from given id or in case they are same return `Self::is_cold` value.
+    /// Returns false if old transition_id is different from given id or in case they are same
+    /// return `Self::is_cold` value.
     #[inline]
     pub const fn mark_warm_with_transaction_id(&mut self, transaction_id: TransactionId) -> bool {
         let is_cold = self.is_cold_transaction_id(transaction_id);

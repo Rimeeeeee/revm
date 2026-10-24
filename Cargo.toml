@@ -59,7 +59,7 @@ ee-tests = { path = "crates/ee-tests", package = "revm-ee-tests", version = "43.
 # alloy
 alloy-eip2930 = { version = "0.2.3", default-features = false }
 alloy-eip7702 = { version = "0.6.3", default-features = false }
-alloy-eip7928 = { version = "0.4.0", default-features = false }
+alloy-eip7928 = { version = "0.4.0", git = "https://github.com/Rimeeeeee/eips", branch = "bogota-devnet-2", default-features = false }
 alloy-eip8141 = { git = "https://github.com/Rimeeeeee/eips", branch = "bogota-devnet-2", default-features = false }
 alloy-primitives = { version = "1.6", default-features = false }
 

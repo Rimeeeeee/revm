@@ -509,13 +509,22 @@ pub trait DatabaseAsync {
         &mut self,
         number: u64,
     ) -> impl Future<Output = Result<B256, Self::Error>> + Send;
+
+    /// Returns a canonical ancestor's timestamp for fork transitions.
+    fn block_timestamp_async(
+        &mut self,
+        _number: u64,
+    ) -> impl Future<Output = Result<Option<u64>, Self::Error>> + Send {
+        core::future::ready(Ok(None))
+    }
 }
 
 /// The async EVM database interface.
 ///
 /// Contains the same methods as [DatabaseRef], but it returns [Future] type instead.
 ///
-/// Use [AsyncDb] to provide [DatabaseRef] implementation for a type that only implements this trait.
+/// Use [AsyncDb] to provide [DatabaseRef] implementation for a type that only implements this
+/// trait.
 pub trait DatabaseAsyncRef {
     /// The database error type.
     type Error: DBErrorMarker;
@@ -558,6 +567,14 @@ pub trait DatabaseAsyncRef {
         &self,
         number: u64,
     ) -> impl Future<Output = Result<B256, Self::Error>> + Send;
+
+    /// Returns a canonical ancestor's timestamp for fork transitions.
+    fn block_timestamp_async_ref(
+        &self,
+        _number: u64,
+    ) -> impl Future<Output = Result<Option<u64>, Self::Error>> + Send {
+        core::future::ready(Ok(None))
+    }
 }
 
 /// Adapter that exposes an async database through the synchronous [`Database`] interface.
@@ -676,6 +693,15 @@ impl<T: DatabaseAsync> Database for AsyncDb<T> {
     }
 
     #[inline]
+    fn block_timestamp(&mut self, number: u64) -> Result<Option<u64>, Self::Error> {
+        let Self { db, rt } = self;
+        block_on_runtime_result(
+            rt.as_ref().map(HandleOrRuntime::handle),
+            db.block_timestamp_async(number),
+        )
+    }
+
+    #[inline]
     fn block_hash(&mut self, number: u64) -> Result<B256, Self::Error> {
         let Self { db, rt } = self;
         block_on_runtime_result(
@@ -731,6 +757,14 @@ impl<T: DatabaseAsyncRef> DatabaseRef for AsyncDb<T> {
     }
 
     #[inline]
+    fn block_timestamp_ref(&self, number: u64) -> Result<Option<u64>, Self::Error> {
+        block_on_runtime_result(
+            self.rt.as_ref().map(HandleOrRuntime::handle),
+            self.db.block_timestamp_async_ref(number),
+        )
+    }
+
+    #[inline]
     fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
         block_on_runtime_result(
             self.rt.as_ref().map(HandleOrRuntime::handle),
@@ -758,7 +792,8 @@ pub struct WrapDatabaseAsync<T>(AsyncDb<T>);
 impl<T> WrapDatabaseAsync<T> {
     /// Wraps a [DatabaseAsync] or [DatabaseAsyncRef] instance.
     ///
-    /// Returns `None` if no tokio runtime is available or if the current runtime is a current-thread runtime.
+    /// Returns `None` if no tokio runtime is available or if the current runtime is a
+    /// current-thread runtime.
     #[inline]
     pub fn new(db: T) -> Option<Self> {
         AsyncDb::blocking(db).map(Self)
@@ -766,9 +801,11 @@ impl<T> WrapDatabaseAsync<T> {
 
     /// Wraps a [DatabaseAsync] or [DatabaseAsyncRef] instance, with a runtime.
     ///
-    /// Refer to [tokio::runtime::Builder] on how to create a runtime if you are in synchronous world.
+    /// Refer to [tokio::runtime::Builder] on how to create a runtime if you are in synchronous
+    /// world.
     ///
-    /// If you are already using something like [tokio::main], call [`WrapDatabaseAsync::new`] instead.
+    /// If you are already using something like [tokio::main], call [`WrapDatabaseAsync::new`]
+    /// instead.
     #[inline]
     pub const fn with_runtime(db: T, runtime: Runtime) -> Self {
         Self(AsyncDb::with_runtime(db, runtime))
@@ -776,10 +813,11 @@ impl<T> WrapDatabaseAsync<T> {
 
     /// Wraps a [DatabaseAsync] or [DatabaseAsyncRef] instance, with a runtime handle.
     ///
-    /// This generally allows you to pass any valid runtime handle, refer to [tokio::runtime::Handle] on how
-    /// to obtain a handle.
+    /// This generally allows you to pass any valid runtime handle, refer to
+    /// [tokio::runtime::Handle] on how to obtain a handle.
     ///
-    /// If you are already in asynchronous world, like [tokio::main], use [`WrapDatabaseAsync::new`] instead.
+    /// If you are already in asynchronous world, like [tokio::main], use [`WrapDatabaseAsync::new`]
+    /// instead.
     #[inline]
     pub const fn with_handle(db: T, handle: Handle) -> Self {
         Self(AsyncDb::with_handle(db, handle))
@@ -838,6 +876,11 @@ impl<T: DatabaseAsync> Database for WrapDatabaseAsync<T> {
     }
 
     #[inline]
+    fn block_timestamp(&mut self, number: u64) -> Result<Option<u64>, Self::Error> {
+        self.0.block_timestamp(number)
+    }
+
+    #[inline]
     fn block_hash(&mut self, number: u64) -> Result<B256, Self::Error> {
         self.0.block_hash(number)
     }
@@ -874,6 +917,11 @@ impl<T: DatabaseAsyncRef> DatabaseRef for WrapDatabaseAsync<T> {
     ) -> Result<StorageValue, Self::Error> {
         self.0
             .storage_by_account_id_ref(address, account_id, storage_key)
+    }
+
+    #[inline]
+    fn block_timestamp_ref(&self, number: u64) -> Result<Option<u64>, Self::Error> {
+        self.0.block_timestamp_ref(number)
     }
 
     #[inline]

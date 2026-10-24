@@ -571,7 +571,7 @@ opcodes! {
     0xA4 => LOG4 => stack_io(6, 0);
     // 0xA5
     // 0xA6
-    // 0xA7
+    0xA7 => SETCODEFROM => stack_io(1, 1);
     // 0xA8
     // 0xA9
     0xAA => APPROVE => stack_io(3, 0), terminating;
@@ -662,6 +662,9 @@ opcodes! {
     0xFF => SELFDESTRUCT => stack_io(1, 0), terminating;
 }
 
+/// EIP-4758 name for opcode 0xff, which transfers balance without deleting the account.
+pub const SENDALL: u8 = SELFDESTRUCT;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -736,7 +739,7 @@ mod tests {
         for _ in OPCODE_INFO.into_iter().flatten() {
             opcode_num += 1;
         }
-        assert_eq!(opcode_num, 163);
+        assert_eq!(opcode_num, 164);
     }
 
     #[test]

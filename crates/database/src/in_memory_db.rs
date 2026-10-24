@@ -15,14 +15,15 @@ pub type InMemoryDB = CacheDB<EmptyDB>;
 
 /// A cache used in [CacheDB]. Its kept separate so it can be used independently.
 ///
-/// Accounts and code are stored in two separate maps, the `accounts` map maps addresses to [DbAccount],
-/// whereas contracts are identified by their code hash, and are stored in the `contracts` map.
-/// The [DbAccount] holds the code hash of the contract, which is used to look up the contract in the `contracts` map.
+/// Accounts and code are stored in two separate maps, the `accounts` map maps addresses to
+/// [DbAccount], whereas contracts are identified by their code hash, and are stored in the
+/// `contracts` map. The [DbAccount] holds the code hash of the contract, which is used to look up
+/// the contract in the `contracts` map.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Cache {
-    /// Account info where None means it is not existing. Not existing state is needed for Pre TANGERINE forks.
-    /// `code` is always `None`, and bytecode can be found in `contracts`.
+    /// Account info where None means it is not existing. Not existing state is needed for Pre
+    /// TANGERINE forks. `code` is always `None`, and bytecode can be found in `contracts`.
     pub accounts: AddressMap<DbAccount>,
     /// Tracks all contracts by their code hash.
     pub contracts: B256Map<Bytecode>,
@@ -112,7 +113,8 @@ impl<ExtDB> CacheDB<ExtDB> {
 
     /// Inserts the account's code into the cache.
     ///
-    /// Accounts objects and code are stored separately in the cache, this will take the code from the account and instead map it to the code hash.
+    /// Accounts objects and code are stored separately in the cache, this will take the code from
+    /// the account and instead map it to the code hash.
     ///
     /// Note: This will not insert into the underlying external database.
     pub fn insert_contract(&mut self, account: &mut AccountInfo) {
@@ -286,7 +288,8 @@ impl<ExtDB: DatabaseRef> CacheDB<ExtDB> {
         if !self.cache.logs.is_empty() {
             output.push_str(&format!("  logs: {} total\n", self.cache.logs.len()));
             for (i, log) in self.cache.logs.iter().enumerate() {
-                // Print address and topics count. We avoid printing raw data to keep output compact.
+                // Print address and topics count. We avoid printing raw data to keep output
+                // compact.
                 output.push_str(&format!(
                     "    [{i}]: address: {:?}, topics: {}\n",
                     log.address,
@@ -328,6 +331,9 @@ impl<ExtDB> DatabaseCommit for CacheDB<ExtDB> {
 }
 
 impl<ExtDB: DatabaseRef> Database for CacheDB<ExtDB> {
+    fn block_timestamp(&mut self, number: u64) -> Result<Option<u64>, Self::Error> {
+        self.db.block_timestamp_ref(number)
+    }
     type Error = ExtDB::Error;
 
     fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
@@ -401,6 +407,9 @@ impl<ExtDB: DatabaseRef> Database for CacheDB<ExtDB> {
 }
 
 impl<ExtDB: DatabaseRef> DatabaseRef for CacheDB<ExtDB> {
+    fn block_timestamp_ref(&self, number: u64) -> Result<Option<u64>, Self::Error> {
+        self.db.block_timestamp_ref(number)
+    }
     type Error = ExtDB::Error;
 
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
@@ -514,10 +523,11 @@ pub enum AccountState {
     /// Before Spurious Dragon hardfork there was a difference between empty and not existing.
     /// And we are flagging it here.
     NotExisting,
-    /// EVM touched this account. For newer hardfork this means it can be cleared/removed from state.
+    /// EVM touched this account. For newer hardfork this means it can be cleared/removed from
+    /// state.
     Touched,
-    /// EVM cleared storage of this account, mostly by selfdestruct, we don't ask database for storage slots
-    /// and assume they are StorageValue::ZERO
+    /// EVM cleared storage of this account, mostly by selfdestruct, we don't ask database for
+    /// storage slots and assume they are StorageValue::ZERO
     StorageCleared,
     /// EVM didn't interacted with this account
     #[default]

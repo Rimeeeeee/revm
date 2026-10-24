@@ -12,7 +12,8 @@ pub trait PrecompileProvider<CTX: ContextTr> {
     /// The output type returned by precompile execution.
     type Output;
 
-    /// Sets the spec id and returns true if the spec id was changed. Initial call to set_spec will always return true.
+    /// Sets the spec id and returns true if the spec id was changed. Initial call to set_spec will
+    /// always return true.
     ///
     /// Returns `true` if precompile addresses should be injected into the journal.
     fn set_spec(&mut self, spec: <CTX::Cfg as Cfg>::Spec) -> bool;
@@ -21,12 +22,11 @@ pub trait PrecompileProvider<CTX: ContextTr> {
     ///
     /// Return values distinguish whether the provider handled the call:
     /// - `Ok(Some(output))` means the call was executed by this provider.
-    /// - `Ok(None)` means this provider does not contain a precompile for the
-    ///   requested address, so the caller should continue with regular contract
-    ///   execution.
-    /// - `Err(error)` means execution failed with a provider error that should
-    ///   abort EVM execution. Non-fatal precompile failures, such as reverts,
-    ///   out-of-gas, or invalid input, should be encoded in `output` instead.
+    /// - `Ok(None)` means this provider does not contain a precompile for the requested address, so
+    ///   the caller should continue with regular contract execution.
+    /// - `Err(error)` means execution failed with a provider error that should abort EVM execution.
+    ///   Non-fatal precompile failures, such as reverts, out-of-gas, or invalid input, should be
+    ///   encoded in `output` instead.
     fn run(
         &mut self,
         context: &mut CTX,
@@ -166,7 +166,8 @@ impl<CTX: ContextTr> PrecompileProvider<CTX> for EthPrecompiles {
             }
         }
 
-        let result = precompile_output_to_interpreter_result(output, inputs.gas_limit);
+        let mut result = precompile_output_to_interpreter_result(output, inputs.gas_limit);
+        apply_eip8151(context, inputs.bytecode_address, &mut result);
         Ok(Some(result))
     }
 
@@ -179,6 +180,63 @@ impl<CTX: ContextTr> PrecompileProvider<CTX> for EthPrecompiles {
     }
 }
 
+/// Applies EIP-8151 to a successful ecRecover result after stateless recovery.
+///
+/// Providers may cache the recovery itself, but must apply this state-dependent check on every
+/// call.
+pub fn apply_eip8151<CTX: ContextTr>(
+    context: &mut CTX,
+    address: Address,
+    result: &mut InterpreterResult,
+) {
+    let spec: SpecId = context.cfg().spec().into();
+    if spec.is_enabled_in(SpecId::BOGOTA)
+        && &address == precompile::secp256k1::ECRECOVER.address()
+        && result.result.is_ok()
+        && result.output.len() == 32
+    {
+        restrict_ecrecover(context, result);
+    }
+}
+
+/// EIP-8151 charges for raw code inspection before accessing the recovered account.
+fn restrict_ecrecover<CTX: ContextTr>(context: &mut CTX, result: &mut InterpreterResult) {
+    use context_interface::{host::LoadError, Host};
+
+    let warm = context.gas_params().warm_storage_read_cost();
+    let cold = context.gas_params().cold_account_additional_cost();
+    let address = Address::from_word(primitives::B256::from_slice(&result.output));
+    let outcome = if !result.gas.record_regular_cost(warm.saturating_mul(2)) {
+        Err(InstructionResult::PrecompileOOG)
+    } else {
+        let skip_cold_load = result.gas.remaining() < cold;
+        match context.load_account_info_skip_cold_load(address, true, skip_cold_load) {
+            Ok(account) => {
+                if account.is_cold {
+                    let paid = result.gas.record_regular_cost(cold);
+                    debug_assert!(paid);
+                }
+                let permitted = account.code.as_ref().is_none_or(|code| {
+                    let raw = code.original_byte_slice();
+                    raw.is_empty() || (raw.len() == 23 && raw.starts_with(&[0xef, 0x01, 0x00]))
+                });
+                Ok(permitted)
+            }
+            Err(LoadError::ColdLoadSkipped) => Err(InstructionResult::PrecompileOOG),
+            Err(LoadError::DBError) => Err(InstructionResult::FatalExternalError),
+        }
+    };
+    match outcome {
+        Ok(true) => {}
+        Ok(false) => result.output = Bytes::new(),
+        Err(reason) => {
+            result.result = reason;
+            result.output = Bytes::new();
+            result.gas.spend_all();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,7 +246,71 @@ mod tests {
     use database::InMemoryDB;
     use interpreter::interpreter::EthInterpreter;
     use primitives::{address, hardfork::SpecId, TxKind, U256};
-    use state::AccountInfo;
+    use state::{AccountInfo, Bytecode};
+
+    #[test]
+    fn restricted_ecrecover_checks_raw_code_and_charges_access() {
+        let recovered = address!("0000000000000000000000000000000000001234");
+        let delegate = address!("0000000000000000000000000000000000005678");
+        for (code, permitted) in [
+            (Bytecode::default(), true),
+            (Bytecode::new_eip7702(delegate), true),
+            (Bytecode::new_legacy(Bytes::from_static(&[0x00])), false),
+            (
+                Bytecode::new_legacy(Bytes::from_static(&[0xef, 0x01, 0x00])),
+                false,
+            ),
+        ] {
+            for warm in [false, true] {
+                let mut db = InMemoryDB::default();
+                db.insert_account_info(recovered, AccountInfo::default().with_code(code.clone()));
+                let mut ctx = Context::mainnet()
+                    .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA))
+                    .with_db(db);
+                if warm {
+                    ctx.journal_mut().load_account(recovered).unwrap();
+                }
+                let mut gas = Gas::new(10_000);
+                assert!(gas.record_regular_cost(3_000));
+                let mut result = InterpreterResult::new(
+                    InstructionResult::Return,
+                    Bytes::copy_from_slice(recovered.into_word().as_slice()),
+                    gas,
+                );
+                restrict_ecrecover(&mut ctx, &mut result);
+                assert_eq!(result.result, InstructionResult::Return);
+                assert_eq!(
+                    result.gas.total_gas_spent(),
+                    if warm { 3_200 } else { 6_100 }
+                );
+                assert_eq!(result.output.len(), if permitted { 32 } else { 0 });
+                assert!(!ctx.journal().evm_state().contains_key(&delegate));
+                assert!(!ctx.journal_mut().load_account(recovered).unwrap().is_cold);
+            }
+        }
+    }
+
+    #[test]
+    fn restricted_ecrecover_unpaid_check_does_not_access_account() {
+        let recovered = address!("0000000000000000000000000000000000001234");
+        for gas_limit in [3_000, 3_199, 6_099] {
+            let mut ctx = Context::mainnet()
+                .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA))
+                .with_db(InMemoryDB::default());
+            let mut gas = Gas::new(gas_limit);
+            assert!(gas.record_regular_cost(3_000));
+            let mut result = InterpreterResult::new(
+                InstructionResult::Return,
+                Bytes::copy_from_slice(recovered.into_word().as_slice()),
+                gas,
+            );
+            restrict_ecrecover(&mut ctx, &mut result);
+            assert_eq!(result.result, InstructionResult::PrecompileOOG);
+            assert_eq!(result.gas.remaining(), 0);
+            assert!(result.output.is_empty());
+            assert!(!ctx.journal().evm_state().contains_key(&recovered));
+        }
+    }
 
     /// Test-only address that hosts an over-spending precompile.
     const OVERSPEND_PRECOMPILE: Address = address!("0000000000000000000000000000000000000100");

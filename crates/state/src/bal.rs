@@ -7,7 +7,8 @@
 //!
 //! - [`BlockAccessIndex`]: block access index
 //! - **`Bal`**: Main BAL structure containing a map of accounts
-//! - **`BalWrites<T>`**: Array of (index, value) pairs representing sequential writes to a state item
+//! - **`BalWrites<T>`**: Array of (index, value) pairs representing sequential writes to a state
+//!   item
 //! - **`AccountBal`**: Complete BAL structure for an account (balance, nonce, code, and storage)
 //! - **`AccountInfoBal`**: Account info BAL data (nonce, balance, code)
 //! - **`StorageBal`**: Storage-level BAL data for an account
@@ -347,6 +348,7 @@ mod tests {
                 code: BalWrites {
                     writes: vec![(idx(7), code(7)), (idx(3), code(3))],
                 },
+                code_adoptions: Default::default(),
             },
             storage: StorageBal {
                 storage: BTreeMap::from([
@@ -494,5 +496,54 @@ mod tests {
         }];
 
         assert!(Bal::clone_from_alloy(&alloy_bal).is_err());
+    }
+    #[test]
+    fn adoption_resolves_only_earlier_deposits_and_roundtrips_as_hash() {
+        let code = Bytes::from_static(&[0x60, 42, 0x00]);
+        let hash = primitives::keccak256(&code);
+        let source = Address::with_last_byte(1);
+        let target = Address::with_last_byte(2);
+        for deposited_at in [1, 2, 3] {
+            let input = vec![
+                AlloyAccountChanges {
+                    address: source,
+                    code_changes: vec![AlloyCodeChange::new(idx(deposited_at), code.clone())],
+                    ..Default::default()
+                },
+                AlloyAccountChanges {
+                    address: target,
+                    code_changes: vec![AlloyCodeChange::new_hash(idx(2), hash)],
+                    ..Default::default()
+                },
+            ];
+            let bal = Bal::try_from_alloy(input.clone()).unwrap();
+            assert_eq!(Bal::clone_from_alloy(&input).unwrap(), bal);
+            let mut info = AccountInfo::default();
+            assert!(bal.accounts[&target].populate_account_info(idx(3), &mut info));
+            assert_eq!(info.code_hash, hash);
+            assert_eq!(
+                info.code.as_ref().map(Bytecode::original_bytes),
+                (deposited_at < 2).then_some(code.clone())
+            );
+            assert_eq!(bal.into_alloy_bal(), input);
+        }
+    }
+
+    #[test]
+    fn code_adoption_returning_to_original_removes_bal_write() {
+        let original = AccountInfo::default();
+        let mut account = Account::from(original.clone());
+        account.info = original
+            .clone()
+            .with_code(Bytecode::new_legacy(Bytes::from_static(&[0x00])));
+        account.status.insert(crate::AccountStatus::CodeAdopted);
+        let mut bal = AccountBal::default();
+        bal.update(idx(1), &account);
+        assert_eq!(bal.code_adoptions.len(), 1);
+        assert_eq!(bal.code.writes.len(), 1);
+        account.info = original;
+        bal.update(idx(1), &account);
+        assert!(bal.code.writes.is_empty());
+        assert!(bal.code_adoptions.is_empty());
     }
 }

@@ -13,7 +13,7 @@ use bytecode::{Bytecode, BytecodeDecodeError};
 use core::ops::{Deref, DerefMut};
 use primitives::{Address, StorageKey, StorageValue, B256, U256};
 use std::{
-    collections::{btree_map::Entry, BTreeMap},
+    collections::{btree_map::Entry, BTreeMap, BTreeSet},
     vec::Vec,
 };
 
@@ -66,6 +66,17 @@ impl AccountBal {
 
         self.account_info
             .update(bal_index, &account.original_info(), &account.info);
+        self.account_info.code_adoptions.remove(&bal_index);
+        if account.status.contains(crate::AccountStatus::CodeAdopted)
+            && self
+                .account_info
+                .code
+                .writes
+                .last()
+                .is_some_and(|(index, _)| *index == bal_index)
+        {
+            self.account_info.code_adoptions.insert(bal_index);
+        }
 
         self.storage.update(bal_index, &account.storage);
     }
@@ -88,6 +99,12 @@ impl AccountBal {
                 account_info: AccountInfoBal {
                     nonce: BalWrites::from(alloy_account.nonce_changes),
                     balance: BalWrites::from(alloy_account.balance_changes),
+                    code_adoptions: alloy_account
+                        .code_changes
+                        .iter()
+                        .filter(|change| change.adopted_code_hash().is_some())
+                        .map(|change| change.block_access_index)
+                        .collect(),
                     code: BalWrites::try_from(alloy_account.code_changes)?,
                 },
                 storage: StorageBal::from_iter(
@@ -124,6 +141,12 @@ impl AccountBal {
                 account_info: AccountInfoBal {
                     nonce: BalWrites::from(alloy_account.nonce_changes.as_slice()),
                     balance: BalWrites::from(alloy_account.balance_changes.as_slice()),
+                    code_adoptions: alloy_account
+                        .code_changes
+                        .iter()
+                        .filter(|change| change.adopted_code_hash().is_some())
+                        .map(|change| change.block_access_index)
+                        .collect(),
                     code: BalWrites::try_from(alloy_account.code_changes.as_slice())?,
                 },
                 storage: StorageBal::from_iter(
@@ -190,12 +213,19 @@ impl AccountBal {
             .collect::<Vec<_>>();
         nonce_changes.sort_unstable_by_key(|change| change.block_access_index);
 
+        let code_adoptions = self.account_info.code_adoptions;
         let mut code_changes = self
             .account_info
             .code
             .writes
             .into_iter()
-            .map(|(index, (_, value))| AlloyCodeChange::new(index, value.original_bytes()))
+            .map(|(index, (hash, value))| {
+                if code_adoptions.contains(&index) {
+                    AlloyCodeChange::new_hash(index, hash)
+                } else {
+                    AlloyCodeChange::new(index, value.original_bytes())
+                }
+            })
             .collect::<Vec<_>>();
         code_changes.sort_unstable_by_key(|change| change.block_access_index);
 
@@ -220,6 +250,9 @@ pub struct AccountInfoBal {
     pub balance: BalWrites<U256>,
     /// Code builder.
     pub code: BalWrites<(B256, Bytecode)>,
+    /// Indices whose code changes adopt an existing hash through EIP-8298.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub code_adoptions: BTreeSet<BlockAccessIndex>,
 }
 
 impl AccountInfoBal {
@@ -238,9 +271,19 @@ impl AccountInfoBal {
             account.balance = balance;
             changed = true;
         }
-        if let Some(code) = self.code.get(bal_index) {
+        if let Some((index, code)) = self
+            .code
+            .writes
+            .iter()
+            .rev()
+            .find(|(index, _)| *index < bal_index)
+        {
             account.code_hash = code.0;
-            account.code = Some(code.1);
+            account.code = if self.code_adoptions.contains(index) && code.1.is_empty() {
+                None
+            } else {
+                Some(code.1.clone())
+            };
             changed = true;
         }
         changed
@@ -257,14 +300,12 @@ impl AccountInfoBal {
         self.nonce.update(index, &original.nonce, present.nonce);
         self.balance
             .update(index, &original.balance, present.balance);
-        if original.code_hash != present.code_hash {
-            self.code.update_with_key(
-                index,
-                &original.code_hash,
-                (present.code_hash, present.code.clone().unwrap_or_default()),
-                |i| &i.0,
-            );
-        }
+        self.code.update_with_key(
+            index,
+            &original.code_hash,
+            (present.code_hash, present.code.clone().unwrap_or_default()),
+            |i| &i.0,
+        );
     }
 
     /// Extend account info from another account info.
@@ -273,6 +314,7 @@ impl AccountInfoBal {
         self.nonce.extend(bal_account.nonce);
         self.balance.extend(bal_account.balance);
         self.code.extend(bal_account.code);
+        self.code_adoptions.extend(bal_account.code_adoptions);
     }
 
     /// Update account balance in BAL.

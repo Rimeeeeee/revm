@@ -34,6 +34,9 @@ impl OpCode {
     /// This is the inverse of [`as_str`](Self::as_str).
     #[inline]
     pub fn parse(s: &str) -> Option<Self> {
+        if s == "SENDALL" {
+            return Some(Self::SELFDESTRUCT);
+        }
         NAME_TO_OPCODE.get(s).copied()
     }
 }

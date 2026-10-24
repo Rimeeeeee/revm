@@ -405,6 +405,11 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
         Self::touch_account(&mut self.journal, address, account);
 
         let had_code_hash = account.info.code_hash;
+        if account.status.contains(state::AccountStatus::CodeAdopted) {
+            self.journal
+                .push(ENTRY::code_adoption_changed(address, true));
+            account.status.remove(state::AccountStatus::CodeAdopted);
+        }
         let had_code = account.info.code.take();
         self.journal
             .push(ENTRY::code_changed(address, had_code_hash, had_code));
@@ -720,56 +725,54 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
         let is_cancun_enabled = spec.is_enabled_in(CANCUN);
 
         // EIP-6780 (Cancun hard-fork): selfdestruct only if contract is created in the same tx
-        let journal_entry = if acc.is_created_locally() || !is_cancun_enabled {
-            // EIP-8246: Track first self-destruction so the account can be cleared (code, storage
-            // and nonce) while preserving its balance at finalization.
-            // Only track when account is actually destroyed and delayed clearing is not disabled.
-            if destroyed_status == SelfdestructionRevertStatus::GloballySelfdestroyed
-                && !self.cfg.eip8246_delayed_clear_disabled
-            {
-                self.selfdestructed_addresses.push(address);
-            }
+        let journal_entry =
+            if !spec.is_enabled_in(BOGOTA) && (acc.is_created_locally() || !is_cancun_enabled) {
+                // EIP-8246: Track first self-destruction so the account can be cleared (code, storage
+                // and nonce) while preserving its balance at finalization.
+                // Only track when account is actually destroyed and delayed clearing is not disabled.
+                if destroyed_status == SelfdestructionRevertStatus::GloballySelfdestroyed
+                    && !self.cfg.eip8246_delayed_clear_disabled
+                {
+                    self.selfdestructed_addresses.push(address);
+                }
 
-            acc.mark_selfdestructed_locally();
+                acc.mark_selfdestructed_locally();
 
-            // `had_balance` records the balance that left the account so it can be restored
-            // on revert.
-            let had_balance = if target != address {
-                // Balance was transferred to target above; zero out the source.
+                // `had_balance` records the balance that left the account so it can be restored
+                // on revert.
+                let had_balance = if target != address {
+                    // Balance was transferred to target above; zero out the source.
+                    acc.info.balance = U256::ZERO;
+                    // EIP-7708: transfer log for balance moved to a different address.
+                    self.eip7708_transfer_log(address, target, balance);
+                    balance
+                } else if spec.is_enabled_in(AMSTERDAM) {
+                    // EIP-8246: self-destruct to self no longer burns the balance. The balance is
+                    // kept and the account is cleared at finalization
+                    // (see `eip8246_clear_selfdestructed_accounts`).
+                    U256::ZERO
+                } else {
+                    // Pre-EIP-8246: self-destruct to self burns the balance.
+                    acc.info.balance = U256::ZERO;
+                    balance
+                };
+
+                Some(ENTRY::account_destroyed(
+                    address,
+                    target,
+                    destroyed_status,
+                    had_balance,
+                ))
+            } else if address != target {
                 acc.info.balance = U256::ZERO;
-                // EIP-7708: transfer log for balance moved to a different address.
+                // EIP-7708: emit appropriate log for selfdestruct
+                // Transfer log for balance transferred to different address
                 self.eip7708_transfer_log(address, target, balance);
-                balance
-            } else if spec.is_enabled_in(AMSTERDAM) {
-                // EIP-8246: self-destruct to self no longer burns the balance. The balance is
-                // kept and the account is cleared at finalization
-                // (see `eip8246_clear_selfdestructed_accounts`).
-                U256::ZERO
+                Some(ENTRY::balance_transfer(address, target, balance))
             } else {
-                // Pre-EIP-8246: self-destruct to self burns the balance.
-                acc.info.balance = U256::ZERO;
-                balance
+                // Self-transfers preserve balance when no deletion is performed.
+                None
             };
-
-            Some(ENTRY::account_destroyed(
-                address,
-                target,
-                destroyed_status,
-                had_balance,
-            ))
-        } else if address != target {
-            acc.info.balance = U256::ZERO;
-            // EIP-7708: emit appropriate log for selfdestruct
-            // Transfer log for balance transferred to different address
-            self.eip7708_transfer_log(address, target, balance);
-            Some(ENTRY::balance_transfer(address, target, balance))
-        } else {
-            // State is not changed:
-            // * if we are after Cancun upgrade and
-            // * Selfdestruct account that is created in the same transaction and
-            // * Specify the target is same as selfdestructed account. The balance stays unchanged.
-            None
-        };
 
         if let Some(entry) = journal_entry {
             self.journal.push(entry);
@@ -967,6 +970,9 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
                         .warm_addresses
                         .check_is_cold(&address, skip_cold_load)?;
 
+                    if account.transaction_id != self.transaction_id {
+                        account.status.remove(state::AccountStatus::CodeAdopted);
+                    }
                     // mark it warm.
                     account.mark_warm_with_transaction_id(self.transaction_id);
 
@@ -1175,6 +1181,7 @@ impl<ENTRY: JournalEntryTr> JournalInner<ENTRY> {
             Entry::Occupied(mut entry) => {
                 let account = entry.get_mut();
                 if account.transaction_id != transaction_id {
+                    account.status.remove(state::AccountStatus::CodeAdopted);
                     if account.is_selfdestructed_locally() {
                         account.selfdestruct();
                         account.unmark_selfdestructed_locally();

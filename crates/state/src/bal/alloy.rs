@@ -30,7 +30,9 @@ impl Bal {
             accounts.insert(address, account_bal);
         }
 
-        Ok(Self { accounts })
+        let mut bal = Self { accounts };
+        bal.resolve_adopted_code();
+        Ok(bal)
     }
 
     /// Clone EIP-7928 [`AlloyAccountChanges`] into a [`Bal`] without consuming the source.
@@ -52,7 +54,36 @@ impl Bal {
             accounts.insert(address, account_bal);
         }
 
-        Ok(Self { accounts })
+        let mut bal = Self { accounts };
+        bal.resolve_adopted_code();
+        Ok(bal)
+    }
+
+    /// Resolve hash adoptions against bytecode deposited earlier in this block.
+    fn resolve_adopted_code(&mut self) {
+        let mut deposited: primitives::HashMap<B256, (crate::bal::BlockAccessIndex, Bytecode)> =
+            primitives::HashMap::default();
+        for account in self.accounts.values() {
+            for (index, (hash, code)) in &account.account_info.code.writes {
+                if !account.account_info.code_adoptions.contains(index) {
+                    let entry = deposited.entry(*hash).or_insert((*index, code.clone()));
+                    if *index < entry.0 {
+                        *entry = (*index, code.clone());
+                    }
+                }
+            }
+        }
+        for account in self.accounts.values_mut() {
+            for (index, (hash, code)) in &mut account.account_info.code.writes {
+                if account.account_info.code_adoptions.contains(index) {
+                    if let Some((deposited_index, deposited_code)) = deposited.get(hash) {
+                        if deposited_index < index {
+                            *code = deposited_code.clone();
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -140,10 +171,10 @@ impl TryFrom<Vec<AlloyCodeChange>> for BalWrites<(B256, Bytecode)> {
                 .into_iter()
                 .map(|change| {
                     // convert bytes to bytecode.
-                    Bytecode::new_raw_checked(change.new_code).map(|bytecode| {
-                        let hash = bytecode.hash_slow();
-                        (change.block_access_index, (hash, bytecode))
-                    })
+                    let hash = change.code_hash();
+                    let index = change.block_access_index;
+                    Bytecode::new_raw_checked(change.into_code())
+                        .map(|bytecode| (index, (hash, bytecode)))
                 })
                 .collect::<Result<Vec<_>, Self::Error>>()?,
         })
@@ -158,10 +189,9 @@ impl TryFrom<&[AlloyCodeChange]> for BalWrites<(B256, Bytecode)> {
             writes: value
                 .iter()
                 .map(|change| {
-                    Bytecode::new_raw_checked(change.new_code.clone()).map(|bytecode| {
-                        let hash = bytecode.hash_slow();
-                        (change.block_access_index, (hash, bytecode))
-                    })
+                    let hash = change.code_hash();
+                    Bytecode::new_raw_checked(change.new_code().clone())
+                        .map(|bytecode| (change.block_access_index, (hash, bytecode)))
                 })
                 .collect::<Result<Vec<_>, Self::Error>>()?,
         })

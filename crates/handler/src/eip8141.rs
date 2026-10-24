@@ -885,8 +885,7 @@ fn finish_transaction<H: Handler + ?Sized>(
     settle_fees::<H>(evm, payer, result_gas.frame_tx_gas_used())?;
     take_error::<H::Error, _>(evm.ctx().error())?;
 
-    // Finalize delayed SELFDESTRUCT cleanup after the assertions have observed
-    // the execution body, but before commit_tx clears the destruction list.
+    // Per-frame receipts retain the logs after the journal is cleared for the next transaction.
     let _ = evm.ctx().journal_mut().take_logs();
     evm.ctx().journal_mut().commit_tx();
     evm.ctx().local_mut().clear();
@@ -3607,7 +3606,7 @@ mod tests {
     }
 
     #[test]
-    fn frame_transaction_finalizes_selfdestruct_after_assertion() {
+    fn frame_transaction_sendall_preserves_created_account_after_assertion() {
         let created = STORAGE_TARGET.create(1);
         // Initcode returns SSTORE(0, 1); SELFDESTRUCT(ADDRESS).
         let initcode = [
@@ -3629,7 +3628,7 @@ mod tests {
         factory_account.nonce = 1;
         factory_account.balance = U256::from(100);
         db.insert_account_info(STORAGE_TARGET, factory_account);
-        // A created-and-destroyed contract remains visible to ASSERT before cleanup.
+        // SENDALL preserves the created contract for ASSERT and transaction finalization.
         db.insert_account_info(
             REVERT_TARGET,
             account_with_code([
@@ -3668,9 +3667,9 @@ mod tests {
         assert_eq!(U256::from_be_slice(&frame_outputs[2]), U256::from(1));
         let account = &output.state[&created];
         assert_eq!(account.info.balance, U256::from(1));
-        assert_eq!(account.info.nonce, 0);
-        assert_eq!(account.info.code_hash, KECCAK_EMPTY);
-        assert_eq!(account.storage[&U256::ZERO].present_value(), U256::ZERO);
+        assert_eq!(account.info.nonce, 1);
+        assert_ne!(account.info.code_hash, KECCAK_EMPTY);
+        assert_eq!(account.storage[&U256::ZERO].present_value(), U256::from(1));
         assert!(!account.is_selfdestructed());
     }
 

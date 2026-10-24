@@ -119,8 +119,8 @@ impl BalState {
 
     /// Get account id from BAL.
     ///
-    /// Returns `Ok(None)` if no BAL is attached, or if [`Self::allow_db_fallback`] is enabled and the
-    /// account is not covered by the BAL.
+    /// Returns `Ok(None)` if no BAL is attached, or if [`Self::allow_db_fallback`] is enabled and
+    /// the account is not covered by the BAL.
     ///
     /// Return Error if the BAL is attached but does not contain the account and fallback is
     /// disabled.
@@ -178,8 +178,8 @@ impl BalState {
 
     /// Get storage value from BAL.
     ///
-    /// Returns `Ok(None)` if no BAL is attached, or if [`Self::allow_db_fallback`] is enabled and the
-    /// account or slot is not covered by the BAL.
+    /// Returns `Ok(None)` if no BAL is attached, or if [`Self::allow_db_fallback`] is enabled and
+    /// the account or slot is not covered by the BAL.
     ///
     /// Return Err if bal is present but account or storage is not found inside BAL and fallback
     /// is disabled.
@@ -209,8 +209,8 @@ impl BalState {
 
     /// Get the storage value by account id.
     ///
-    /// Returns `Ok(None)` if no BAL is attached, or if [`Self::allow_db_fallback`] is enabled and the
-    /// slot is not covered by the BAL.
+    /// Returns `Ok(None)` if no BAL is attached, or if [`Self::allow_db_fallback`] is enabled and
+    /// the slot is not covered by the BAL.
     ///
     /// Return Err if the account id is invalid, or if the slot is not found inside BAL and
     /// fallback is disabled.
@@ -431,6 +431,12 @@ impl<DB: Database> Database for BalDatabase<DB> {
 
         self.db
             .storage(address, storage_key)
+            .map_err(EvmDatabaseError::Database)
+    }
+
+    fn block_timestamp(&mut self, number: u64) -> Result<Option<u64>, Self::Error> {
+        self.db
+            .block_timestamp(number)
             .map_err(EvmDatabaseError::Database)
     }
 

@@ -37,6 +37,13 @@ where
         }
     }
 
+    fn block_timestamp(&mut self, number: u64) -> Result<Option<u64>, Self::Error> {
+        match self {
+            Self::Left(db) => db.block_timestamp(number),
+            Self::Right(db) => db.block_timestamp(number),
+        }
+    }
+
     fn block_hash(&mut self, number: u64) -> Result<B256, Self::Error> {
         match self {
             Self::Left(db) => db.block_hash(number),
@@ -106,6 +113,13 @@ where
         match self {
             Self::Left(db) => db.storage_ref(address, index),
             Self::Right(db) => db.storage_ref(address, index),
+        }
+    }
+
+    fn block_timestamp_ref(&self, number: u64) -> Result<Option<u64>, Self::Error> {
+        match self {
+            Self::Left(db) => db.block_timestamp_ref(number),
+            Self::Right(db) => db.block_timestamp_ref(number),
         }
     }
 
