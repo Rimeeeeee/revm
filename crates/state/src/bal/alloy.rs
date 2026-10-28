@@ -99,6 +99,7 @@ impl TryFrom<AlloyBal> for Bal {
 impl From<Vec<AlloyBalanceChange>> for BalWrites<U256> {
     fn from(value: Vec<AlloyBalanceChange>) -> Self {
         Self {
+            original_value: None,
             writes: value
                 .into_iter()
                 .map(|change| (change.block_access_index, change.post_balance))
@@ -110,6 +111,7 @@ impl From<Vec<AlloyBalanceChange>> for BalWrites<U256> {
 impl From<&[AlloyBalanceChange]> for BalWrites<U256> {
     fn from(value: &[AlloyBalanceChange]) -> Self {
         Self {
+            original_value: None,
             writes: value
                 .iter()
                 .map(|change| (change.block_access_index, change.post_balance))
@@ -121,6 +123,7 @@ impl From<&[AlloyBalanceChange]> for BalWrites<U256> {
 impl From<Vec<AlloyNonceChange>> for BalWrites<u64> {
     fn from(value: Vec<AlloyNonceChange>) -> Self {
         Self {
+            original_value: None,
             writes: value
                 .into_iter()
                 .map(|change| (change.block_access_index, change.new_nonce))
@@ -132,6 +135,7 @@ impl From<Vec<AlloyNonceChange>> for BalWrites<u64> {
 impl From<&[AlloyNonceChange]> for BalWrites<u64> {
     fn from(value: &[AlloyNonceChange]) -> Self {
         Self {
+            original_value: None,
             writes: value
                 .iter()
                 .map(|change| (change.block_access_index, change.new_nonce))
@@ -143,6 +147,7 @@ impl From<&[AlloyNonceChange]> for BalWrites<u64> {
 impl From<Vec<AlloyStorageChange>> for BalWrites<U256> {
     fn from(value: Vec<AlloyStorageChange>) -> Self {
         Self {
+            original_value: None,
             writes: value
                 .into_iter()
                 .map(|change| (change.block_access_index, change.new_value))
@@ -154,6 +159,7 @@ impl From<Vec<AlloyStorageChange>> for BalWrites<U256> {
 impl From<&[AlloyStorageChange]> for BalWrites<U256> {
     fn from(value: &[AlloyStorageChange]) -> Self {
         Self {
+            original_value: None,
             writes: value
                 .iter()
                 .map(|change| (change.block_access_index, change.new_value))
@@ -167,6 +173,7 @@ impl TryFrom<Vec<AlloyCodeChange>> for BalWrites<(B256, Bytecode)> {
 
     fn try_from(value: Vec<AlloyCodeChange>) -> Result<Self, Self::Error> {
         Ok(Self {
+            original_value: None,
             writes: value
                 .into_iter()
                 .map(|change| {
@@ -186,6 +193,7 @@ impl TryFrom<&[AlloyCodeChange]> for BalWrites<(B256, Bytecode)> {
 
     fn try_from(value: &[AlloyCodeChange]) -> Result<Self, Self::Error> {
         Ok(Self {
+            original_value: None,
             writes: value
                 .iter()
                 .map(|change| {

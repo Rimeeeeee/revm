@@ -341,12 +341,15 @@ mod tests {
             account_info: AccountInfoBal {
                 nonce: BalWrites {
                     writes: vec![(idx(9), 90), (idx(4), 40)],
+                    ..Default::default()
                 },
                 balance: BalWrites {
                     writes: vec![(idx(5), U256::from(50)), (idx(2), U256::from(20))],
+                    ..Default::default()
                 },
                 code: BalWrites {
                     writes: vec![(idx(7), code(7)), (idx(3), code(3))],
+                    ..Default::default()
                 },
                 code_adoptions: Default::default(),
             },
@@ -356,16 +359,18 @@ mod tests {
                         U256::from(4),
                         BalWrites {
                             writes: vec![(idx(8), U256::from(80)), (idx(6), U256::from(60))],
+                            ..Default::default()
                         },
                     ),
-                    (U256::from(1), BalWrites { writes: vec![] }),
+                    (U256::from(1), BalWrites::default()),
                     (
                         U256::from(2),
                         BalWrites {
                             writes: vec![(idx(3), U256::from(30)), (idx(1), U256::from(10))],
+                            ..Default::default()
                         },
                     ),
-                    (U256::from(3), BalWrites { writes: vec![] }),
+                    (U256::from(3), BalWrites::default()),
                 ]),
             },
         };
@@ -545,5 +550,154 @@ mod tests {
         bal.update(idx(1), &account);
         assert!(bal.code.writes.is_empty());
         assert!(bal.code_adoptions.is_empty());
+    }
+
+    fn record_system_call_code(
+        bal: &mut AccountBal,
+        index: u64,
+        original: &AccountInfo,
+        present: &AccountInfo,
+        adopted: bool,
+    ) {
+        let mut account = Account::from(original.clone());
+        account.info = present.clone();
+        account.mark_touch();
+        if adopted {
+            account.status.insert(crate::AccountStatus::CodeAdopted);
+        }
+        bal.update(idx(index), &account);
+    }
+
+    #[test]
+    fn code_adoption_survives_later_system_calls_at_the_same_index() {
+        let original = AccountInfo::default().with_code(code(0).1);
+        let first = AccountInfo::default().with_code(code(1).1);
+        let second = AccountInfo::default().with_code(code(2).1);
+        for index in [0, 1] {
+            for readopt in [false, true] {
+                let mut bal = AccountBal::default();
+                record_system_call_code(&mut bal, index, &original, &first, true);
+                let final_info = if readopt { &second } else { &first };
+                record_system_call_code(&mut bal, index, &first, final_info, readopt);
+                record_system_call_code(&mut bal, index, final_info, final_info, false);
+
+                let account = bal.into_alloy_account(Address::with_last_byte(1));
+                assert_eq!(
+                    account.code_changes.len(),
+                    1,
+                    "index={index}, readopt={readopt}"
+                );
+                assert_eq!(account.code_changes[0].block_access_index, idx(index));
+                assert_eq!(
+                    account.code_changes[0].adopted_code_hash(),
+                    Some(final_info.code_hash)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn system_call_readoption_to_original_removes_the_net_change() {
+        let original = AccountInfo::default().with_code(code(0).1);
+        let adopted = AccountInfo::default().with_code(code(1).1);
+        let mut bal = AccountBal::default();
+        record_system_call_code(&mut bal, 0, &original, &adopted, true);
+        record_system_call_code(&mut bal, 0, &adopted, &original, true);
+        assert!(bal.code.writes.is_empty());
+        assert!(bal.code_adoptions.is_empty());
+    }
+
+    #[test]
+    fn system_call_adoptions_keep_distinct_access_indices() {
+        let original = AccountInfo::default().with_code(code(0).1);
+        let first = AccountInfo::default().with_code(code(1).1);
+        let second = AccountInfo::default().with_code(code(2).1);
+        let mut bal = AccountBal::default();
+        for (index, before, after) in [
+            (0, &original, &first),
+            (1, &first, &second),
+            (2, &second, &original),
+        ] {
+            record_system_call_code(&mut bal, index, before, after, true);
+            record_system_call_code(&mut bal, index, after, after, false);
+        }
+        let account = bal.into_alloy_account(Address::with_last_byte(1));
+        assert_eq!(account.code_changes.len(), 3);
+        for (change, (index, info)) in
+            account
+                .code_changes
+                .iter()
+                .zip([(0, &first), (1, &second), (2, &original)])
+        {
+            assert_eq!(change.block_access_index, idx(index));
+            assert_eq!(change.adopted_code_hash(), Some(info.code_hash));
+        }
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn system_call_code_baseline_survives_serialization() {
+        let original = AccountInfo::default().with_code(code(0).1);
+        let adopted = AccountInfo::default().with_code(code(1).1);
+        let mut bal = AccountBal::default();
+        let empty = postcard::to_allocvec(&bal).unwrap();
+        assert_eq!(postcard::from_bytes::<AccountBal>(&empty).unwrap(), bal);
+
+        record_system_call_code(&mut bal, 0, &original, &adopted, true);
+        let encoded = postcard::to_allocvec(&bal).unwrap();
+        let mut decoded: AccountBal = postcard::from_bytes(&encoded).unwrap();
+        assert_eq!(decoded, bal);
+        record_system_call_code(&mut decoded, 0, &adopted, &original, true);
+        assert!(decoded.code.writes.is_empty());
+        assert!(decoded.code_adoptions.is_empty());
+    }
+
+    #[test]
+    fn system_call_storage_writes_keep_the_phase_baseline() {
+        let key = U256::from(7);
+        for index in [0, 1] {
+            let mut bal = StorageBal::default();
+            for (before, after) in [(0, 42), (42, 42), (42, 42)] {
+                let storage = crate::EvmStorage::from_iter([(
+                    key,
+                    crate::EvmStorageSlot::new_changed(
+                        U256::from(before),
+                        U256::from(after),
+                        crate::TransactionId::ZERO,
+                    ),
+                )]);
+                bal.update(idx(index), &storage);
+            }
+            assert_eq!(bal.storage[&key].writes, vec![(idx(index), U256::from(42))]);
+
+            let restored = crate::EvmStorage::from_iter([(
+                key,
+                crate::EvmStorageSlot::new_changed(
+                    U256::from(42),
+                    U256::ZERO,
+                    crate::TransactionId::ZERO,
+                ),
+            )]);
+            bal.update(idx(index), &restored);
+            assert!(bal.storage[&key].writes.is_empty());
+        }
+    }
+
+    #[test]
+    fn system_call_account_writes_keep_the_phase_baseline() {
+        let original = AccountInfo::default()
+            .with_balance(U256::from(10))
+            .with_nonce(1);
+        let changed = AccountInfo::default()
+            .with_balance(U256::from(12))
+            .with_nonce(2);
+        let mut bal = AccountBal::default();
+        record_system_call_code(&mut bal, 0, &original, &changed, false);
+        record_system_call_code(&mut bal, 0, &changed, &changed, false);
+        assert_eq!(bal.balance.writes, vec![(idx(0), U256::from(12))]);
+        assert_eq!(bal.nonce.writes, vec![(idx(0), 2)]);
+        record_system_call_code(&mut bal, 0, &changed, &original, false);
+        assert!(bal.balance.writes.is_empty());
+        assert!(bal.nonce.writes.is_empty());
     }
 }

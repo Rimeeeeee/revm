@@ -1,7 +1,7 @@
 //! BAL containing writes.
 
 use crate::bal::BlockAccessIndex;
-use std::vec::Vec;
+use std::{boxed::Box, vec::Vec};
 
 /// Use to store values
 ///
@@ -11,13 +11,19 @@ use std::vec::Vec;
 pub struct BalWrites<T: PartialEq + Clone> {
     /// List of writes with [`BlockAccessIndex`].
     pub writes: Vec<(BlockAccessIndex, T)>,
+    /// Value before the first change, retained across calls sharing an access index.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub original_value: Option<Box<T>>,
 }
 
 impl<T: PartialEq + Clone> BalWrites<T> {
     /// Create a new BalWrites.
     pub fn new(mut writes: Vec<(BlockAccessIndex, T)>) -> Self {
         writes.sort_by_key(|(index, _)| *index);
-        Self { writes }
+        Self {
+            writes,
+            original_value: None,
+        }
     }
 
     /// Linear search is used for small number of writes. It is faster than binary search.
@@ -53,6 +59,7 @@ impl<T: PartialEq + Clone> BalWrites<T> {
 
     /// Extend the builder with another builder.
     pub fn extend(&mut self, other: BalWrites<T>) {
+        self.original_value = self.original_value.take().or(other.original_value);
         self.writes.extend(other.writes);
     }
 
@@ -95,12 +102,17 @@ impl<T: PartialEq + Clone> BalWrites<T> {
     pub fn update_with_key<K: PartialEq, F>(
         &mut self,
         index: BlockAccessIndex,
-        original_subvalue: &K,
+        original_value: &T,
         value: T,
         f: F,
     ) where
         F: Fn(&T) -> &K,
     {
+        if self.original_value.is_none() && f(original_value) != f(&value) {
+            self.original_value = Some(Box::new(original_value.clone()));
+        }
+        let original_subvalue = f(self.original_value.as_deref().unwrap_or(original_value));
+
         // if index is different, we push the new value.
         if let Some(last) = self.writes.last_mut() {
             if last.0 != index {

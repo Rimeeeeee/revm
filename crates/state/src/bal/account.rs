@@ -64,18 +64,23 @@ impl AccountBal {
             return;
         }
 
+        let original = account.original_info();
         self.account_info
-            .update(bal_index, &account.original_info(), &account.info);
-        self.account_info.code_adoptions.remove(&bal_index);
-        if account.status.contains(crate::AccountStatus::CodeAdopted)
-            && self
-                .account_info
-                .code
-                .writes
-                .last()
-                .is_some_and(|(index, _)| *index == bal_index)
-        {
-            self.account_info.code_adoptions.insert(bal_index);
+            .update(bal_index, &original, &account.info);
+        let has_code_change = self
+            .account_info
+            .code
+            .writes
+            .last()
+            .is_some_and(|(index, _)| *index == bal_index);
+        if !has_code_change {
+            self.account_info.code_adoptions.remove(&bal_index);
+        } else if original.code_hash != account.info.code_hash {
+            if account.status.contains(crate::AccountStatus::CodeAdopted) {
+                self.account_info.code_adoptions.insert(bal_index);
+            } else {
+                self.account_info.code_adoptions.remove(&bal_index);
+            }
         }
 
         self.storage.update(bal_index, &account.storage);
@@ -300,11 +305,11 @@ impl AccountInfoBal {
         self.nonce.update(index, &original.nonce, present.nonce);
         self.balance
             .update(index, &original.balance, present.balance);
-        self.code.update_with_key(
+        self.code_update(
             index,
             &original.code_hash,
-            (present.code_hash, present.code.clone().unwrap_or_default()),
-            |i| &i.0,
+            present.code_hash,
+            present.code.clone().unwrap_or_default(),
         );
     }
 
@@ -343,8 +348,12 @@ impl AccountInfoBal {
         code_hash: B256,
         code: Bytecode,
     ) {
-        self.code
-            .update_with_key(bal_index, original_code_hash, (code_hash, code), |i| &i.0);
+        self.code.update_with_key(
+            bal_index,
+            &(*original_code_hash, Bytecode::default()),
+            (code_hash, code),
+            |i| &i.0,
+        );
     }
 }
 

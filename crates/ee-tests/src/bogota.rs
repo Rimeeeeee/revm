@@ -235,3 +235,106 @@ fn setcodefrom_charges_before_mutation_and_rejects_new_sources() {
         );
     }
 }
+
+#[test]
+fn setcodefrom_system_calls_keep_code_and_storage_changes_at_one_bal_index() {
+    use revm::{database::State, handler::SystemCallCommitEvm, state::bal::BlockAccessIndex};
+
+    let second_source = Address::repeat_byte(0xce);
+    for (index, calls) in [(0, 2), (1, 4)] {
+        for readopt in [false, true] {
+            let marker = if readopt { 43 } else { 42 };
+            let mut marker_code = vec![0x60, marker, 0x60, 1, 0x55];
+            let mut source_code = marker_code.clone();
+            if readopt {
+                source_code.extend(adopt(second_source));
+                source_code.push(0x50);
+            }
+            source_code.push(0x00);
+            marker_code.push(0x00);
+            let final_code = Bytecode::new_legacy(Bytes::from(if readopt {
+                marker_code.clone()
+            } else {
+                source_code.clone()
+            }));
+
+            let mut shell = adopt(SOURCE);
+            shell.extend_from_slice(&[0x5f, 0x55, 0x00]);
+            let mut db = CacheDB::<EmptyDB>::default();
+            db.insert_account_info(
+                TARGET,
+                AccountInfo::default().with_code(Bytecode::new_legacy(shell.into())),
+            );
+            db.insert_account_info(
+                SOURCE,
+                AccountInfo::default().with_code(Bytecode::new_legacy(source_code.into())),
+            );
+            db.insert_account_info(
+                second_source,
+                AccountInfo::default().with_code(Bytecode::new_legacy(marker_code.into())),
+            );
+
+            let mut driver_code = vec![0x5f, 0x5f, 0x5f, 0x5f, 0x60, 1, 0x73];
+            driver_code.extend_from_slice(TARGET.as_slice());
+            driver_code.extend_from_slice(&[0x62, 0x0f, 0x42, 0x40, 0xf1, 0x50, 0x00]);
+            let drivers = (0..calls)
+                .map(|i| Address::repeat_byte(0xd0 + i))
+                .collect::<Vec<_>>();
+            for driver in &drivers {
+                db.insert_account_info(
+                    *driver,
+                    AccountInfo::default()
+                        .with_balance(U256::from(1))
+                        .with_code(Bytecode::new_legacy(driver_code.clone().into())),
+                );
+            }
+            let mut state = State::builder()
+                .with_database(db)
+                .with_bal_builder()
+                .build();
+            state.set_bal_index(BlockAccessIndex::new(index));
+            let mut evm = Context::mainnet()
+                .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::BOGOTA))
+                .with_db(state)
+                .build_mainnet();
+            for driver in drivers {
+                assert!(evm
+                    .system_call_commit(driver, Bytes::new())
+                    .unwrap()
+                    .is_success());
+            }
+            let bal = evm
+                .ctx
+                .journaled_state
+                .database
+                .take_built_alloy_bal()
+                .unwrap();
+            let shell = bal
+                .iter()
+                .find(|account| account.address == TARGET)
+                .unwrap();
+            assert_eq!(
+                shell.code_changes.len(),
+                1,
+                "index={index}, readopt={readopt}"
+            );
+            assert_eq!(
+                shell.code_changes[0].block_access_index,
+                BlockAccessIndex::new(index)
+            );
+            assert_eq!(
+                shell.code_changes[0].adopted_code_hash(),
+                Some(final_code.hash_slow())
+            );
+            assert_eq!(shell.balance_changes[0].post_balance, U256::from(calls));
+            assert_eq!(shell.storage_changes.len(), 2);
+            assert_eq!(shell.storage_changes[0].slot, U256::ZERO);
+            assert_eq!(shell.storage_changes[0].changes[0].new_value, U256::from(1));
+            assert_eq!(shell.storage_changes[1].slot, U256::from(1));
+            assert_eq!(
+                shell.storage_changes[1].changes[0].new_value,
+                U256::from(marker)
+            );
+        }
+    }
+}
