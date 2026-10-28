@@ -1253,6 +1253,10 @@ pub enum HaltReason {
     OutOfFunds,
     /// Call is too deep.
     CallTooDeep,
+
+    /* Bogota Halts */
+    /// Attempted to change the code of a protected system contract.
+    SystemContractCodeChange,
 }
 
 impl core::error::Error for HaltReason {}
@@ -1282,6 +1286,7 @@ impl fmt::Display for HaltReason {
             Self::CallNotAllowedInsideStatic => write!(f, "call not allowed inside static call"),
             Self::OutOfFunds => write!(f, "out of funds"),
             Self::CallTooDeep => write!(f, "call too deep"),
+            Self::SystemContractCodeChange => write!(f, "system contract code change"),
         }
     }
 }

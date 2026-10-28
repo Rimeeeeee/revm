@@ -92,6 +92,8 @@ pub enum InstructionResult {
     FatalExternalError,
     /// Invalid encoding of an instruction's immediate operand.
     InvalidImmediateEncoding,
+    /// Attempted to change the code of a protected system contract.
+    SystemContractCodeChange,
 }
 
 impl From<TransferError> for InstructionResult {
@@ -144,6 +146,7 @@ impl From<HaltReason> for InstructionResult {
             HaltReason::CallNotAllowedInsideStatic => Self::CallNotAllowedInsideStatic,
             HaltReason::OutOfFunds => Self::OutOfFunds,
             HaltReason::CallTooDeep => Self::CallTooDeep,
+            HaltReason::SystemContractCodeChange => Self::SystemContractCodeChange,
         }
     }
 }
@@ -212,6 +215,7 @@ macro_rules! return_error {
             | $crate::InstructionResult::CreateInitCodeSizeLimit
             | $crate::InstructionResult::FatalExternalError
             | $crate::InstructionResult::InvalidImmediateEncoding
+            | $crate::InstructionResult::SystemContractCodeChange
     };
 }
 
@@ -382,6 +386,9 @@ impl<HaltReasonTr: From<HaltReason>> From<InstructionResult> for SuccessOrHalt<H
             }
             InstructionResult::InvalidImmediateEncoding => {
                 Self::Halt(HaltReason::OpcodeNotFound.into())
+            }
+            InstructionResult::SystemContractCodeChange => {
+                Self::Halt(HaltReason::SystemContractCodeChange.into())
             }
         }
     }
