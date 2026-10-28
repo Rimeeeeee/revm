@@ -418,7 +418,7 @@ pub fn setcodefrom<IT: ITy, H: Host + ?Sized>(context: Ictx<'_, H, IT>) -> Resul
     require_non_staticcall!(context.interpreter);
     let address = context.interpreter.input.target_address();
     if primitives::eip8298::is_system_contract(address) {
-        return Err(InstructionResult::SystemContractCodeChange);
+        return Err(InstructionResult::OpcodeNotFound);
     }
     popn_top!([], top, context.interpreter);
     let (success, gas_used) = context
